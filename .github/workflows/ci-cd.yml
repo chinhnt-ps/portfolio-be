@@ -33,34 +33,35 @@ jobs:
           key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
           restore-keys: ${{ runner.os }}-m2
       
-      - name: Verify Maven settings
+      - name: Verify and fix Maven config
         run: |
-          echo "Checking Maven settings..."
-          if [ -f .mvn/settings.xml ]; then
-            echo "✅ .mvn/settings.xml exists"
-            ls -la .mvn/
-          else
-            echo "⚠️  .mvn/settings.xml not found, Maven will use pom.xml repositories"
+          echo "Checking Maven configuration..."
+          if [ -f .mvn/maven.config ]; then
+            echo "⚠️  .mvn/maven.config found, temporarily removing to avoid settings.xml path issues"
+            mv .mvn/maven.config .mvn/maven.config.bak
           fi
-          echo "Current directory: $(pwd)"
-          echo "Listing .mvn directory:"
-          ls -la .mvn/ 2>/dev/null || echo "No .mvn directory found"
+          echo "Maven will use repositories from pom.xml"
       
       - name: Build with Maven
-        run: |
-          # Override .mvn/maven.config to use pom.xml repositories instead
-          # This avoids issues with .mvn/settings.xml path resolution in CI/CD
-          mvn clean compile -DskipTests --batch-mode -Dmaven.config.skip=true
+        run: mvn clean compile -DskipTests --batch-mode
       
       - name: Run tests
-        run: mvn test --batch-mode -Dmaven.config.skip=true
+        run: mvn test --batch-mode
         continue-on-error: true
         env:
           MONGODB_URI: ${{ secrets.MONGODB_URI }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
       
       - name: Package application
-        run: mvn clean package -DskipTests --batch-mode -Dmaven.config.skip=true
+        run: mvn clean package -DskipTests --batch-mode
+      
+      - name: Restore Maven config
+        if: always()
+        run: |
+          if [ -f .mvn/maven.config.bak ]; then
+            mv .mvn/maven.config.bak .mvn/maven.config
+            echo "✅ Restored .mvn/maven.config"
+          fi
       
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
