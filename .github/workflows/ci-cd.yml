@@ -33,6 +33,15 @@ jobs:
           key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
           restore-keys: ${{ runner.os }}-m2
       
+      - name: Verify Maven settings
+        run: |
+          if [ -f .mvn/settings.xml ]; then
+            echo "✅ .mvn/settings.xml exists"
+            ls -la .mvn/
+          else
+            echo "⚠️  .mvn/settings.xml not found, using default Maven settings"
+          fi
+      
       - name: Build with Maven
         run: mvn clean compile -DskipTests
       
