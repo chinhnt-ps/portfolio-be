@@ -14,11 +14,8 @@ RUN mvn dependency:go-offline -B
 COPY src ./src
 RUN mvn clean package -DskipTests -B
 
-# Runtime stage
-FROM eclipse-temurin:21-jre-alpine
-
-# Install CA certificates for SSL/TLS connections (required for MongoDB Atlas)
-RUN apk add --no-cache ca-certificates
+# Runtime stage - Use non-Alpine image for better SSL/TLS support with MongoDB Atlas
+FROM eclipse-temurin:21-jre
 
 WORKDIR /app
 
@@ -28,9 +25,9 @@ COPY --from=build /app/target/portfolio-be-*.jar app.jar
 # Expose port
 EXPOSE 8080
 
-# Health check (Alpine có wget)
+# Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:8080/api/v1/health || exit 1
+  CMD curl -f http://localhost:8080/api/v1/health || exit 1
 
 # Run application
 CMD ["java", "-jar", "app.jar"]
