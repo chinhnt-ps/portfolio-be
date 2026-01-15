@@ -17,6 +17,9 @@ RUN mvn clean package -DskipTests -B
 # Runtime stage
 FROM eclipse-temurin:21-jre-alpine
 
+# Install CA certificates for SSL/TLS connections (required for MongoDB Atlas)
+RUN apk add --no-cache ca-certificates
+
 WORKDIR /app
 
 # Copy JAR từ build stage
