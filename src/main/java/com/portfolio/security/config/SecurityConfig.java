@@ -62,11 +62,13 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
         
-        // Allow frontend origins (update with actual frontend URL)
+        // Allow frontend origins
+        // TODO: Sau khi deploy Netlify, thêm Netlify URL vào đây
+        // Ví dụ: "https://your-site-name.netlify.app"
         configuration.setAllowedOrigins(Arrays.asList(
                 "http://localhost:3000",
                 "http://localhost:5173", // Vite default
-                "https://yourdomain.com" // Production domain
+                "https://yourdomain.com" // Production domain - UPDATE SAU KHI CÓ NETLIFY URL
         ));
         
         // Allow all HTTP methods
