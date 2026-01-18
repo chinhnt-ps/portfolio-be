@@ -62,4 +62,13 @@ public class RateLimitingConfig {
                 .addLimit(Bandwidth.classic(10, Refill.intervally(10, Duration.ofMinutes(1))))
                 .build();
     }
+
+    /**
+     * Create bucket for wallet API endpoints: 100 requests per minute
+     */
+    public static Bucket createWalletApiBucket() {
+        return Bucket.builder()
+                .addLimit(Bandwidth.classic(100, Refill.intervally(100, Duration.ofMinutes(1))))
+                .build();
+    }
 }

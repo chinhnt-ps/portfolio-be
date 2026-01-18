@@ -1,11 +1,14 @@
 package com.portfolio.common.config;
 
+import com.portfolio.wallet.model.YearMonthConverter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.domain.AuditorAware;
 import org.springframework.data.mongodb.config.EnableMongoAuditing;
+import org.springframework.data.mongodb.core.convert.MongoCustomConversions;
 import org.springframework.data.mongodb.repository.config.EnableMongoRepositories;
 
+import java.util.Arrays;
 import java.util.Optional;
 
 /**
@@ -30,5 +33,17 @@ public class MongoConfig {
     public AuditorAware<String> auditorProvider() {
         // For @CreatedBy and @LastModifiedBy (not used in this project)
         return () -> Optional.of("system");
+    }
+    
+    /**
+     * Custom converters for MongoDB
+     * Supports YearMonth conversion
+     */
+    @Bean
+    public MongoCustomConversions customConversions() {
+        return new MongoCustomConversions(Arrays.asList(
+                new YearMonthConverter.YearMonthToStringConverter(),
+                new YearMonthConverter.StringToYearMonthConverter()
+        ));
     }
 }

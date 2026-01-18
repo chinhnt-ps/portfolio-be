@@ -111,6 +111,7 @@ public class RateLimitingFilter implements HandlerInterceptor {
             case FORGOT_PASSWORD -> RateLimitingConfig.createForgotPasswordBucket();
             case REGISTER -> RateLimitingConfig.createRegisterBucket();
             case FILE_UPLOAD -> RateLimitingConfig.createFileUploadBucket();
+            case WALLET_API -> RateLimitingConfig.createWalletApiBucket();
         };
     }
 
@@ -140,6 +141,7 @@ public class RateLimitingFilter implements HandlerInterceptor {
             case FORGOT_PASSWORD -> "Quá nhiều yêu cầu đặt lại mật khẩu. Vui lòng thử lại sau 1 giờ.";
             case REGISTER -> "Quá nhiều lần đăng ký. Vui lòng thử lại sau 1 giờ.";
             case FILE_UPLOAD -> "Quá nhiều yêu cầu upload file. Vui lòng thử lại sau 1 phút.";
+            case WALLET_API -> "Quá nhiều yêu cầu API. Vui lòng thử lại sau 1 phút.";
         };
     }
 }

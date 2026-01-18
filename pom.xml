@@ -162,6 +162,12 @@
             <version>6.34.0</version>
         </dependency>
         
+        <!-- JSON Processing for Gemini API -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+        
         <!-- Testing -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

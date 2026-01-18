@@ -60,6 +60,14 @@ firebase:
   service-account: ${FIREBASE_SERVICE_ACCOUNT:}
   storage-bucket: ${FIREBASE_STORAGE_BUCKET:chinhnt-ps.firebasestorage.app}
 
+# Gemini AI Configuration
+gemini:
+  api:
+    key: ${GEMINI_API_KEY:}
+    url: ${GEMINI_API_URL:https://generativelanguage.googleapis.com/v1beta/models/gemma-3-4b-it:generateContent}
+    timeout: ${GEMINI_API_TIMEOUT:5000}
+    max-retries: ${GEMINI_API_MAX_RETRIES:3}
+
 logging:
   level:
     root: INFO

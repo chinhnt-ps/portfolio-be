@@ -24,6 +24,7 @@ public @interface RateLimited {
         LOGIN,              // 5 attempts/minute
         FORGOT_PASSWORD,    // 3 attempts/hour
         REGISTER,           // 3 attempts/hour
-        FILE_UPLOAD         // 10 requests/minute
+        FILE_UPLOAD,        // 10 requests/minute
+        WALLET_API          // 100 requests/minute (default for wallet APIs)
     }
 }
