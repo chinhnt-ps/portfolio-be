@@ -50,7 +50,7 @@ public class RateLimitingConfig {
      */
     public static Bucket createRegisterBucket() {
         return Bucket.builder()
-                .addLimit(Bandwidth.classic(3, Refill.intervally(3, Duration.ofHours(1))))
+                .addLimit(Bandwidth.classic(10, Refill.intervally(10, Duration.ofMinutes(2))))
                 .build();
     }
 
