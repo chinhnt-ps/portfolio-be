@@ -35,6 +35,10 @@ spring:
     # Email sender info
     from: ${MAIL_FROM:noreply@example.com}
     from-name: ${MAIL_FROM_NAME:ChinhNT Auth Service}
+
+# SendGrid Web API (recommended on Railway)
+sendgrid:
+  api-key: ${SENDGRID_API_KEY:}
   
   # File Upload Configuration
   servlet:
