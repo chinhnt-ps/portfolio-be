@@ -37,6 +37,19 @@ public class Settlement {
 
     private String liabilityId; // ID of Liability (if type is LIABILITY)
 
+    /**
+     * ID của transaction gốc tạo ra settlement này (nếu có)
+     */
+    private String transactionId;
+    
+    /**
+     * Tài khoản dùng để thanh toán (optional)
+     * Nếu có, khi tạo Settlement sẽ cập nhật account balance:
+     * - RECEIVABLE: cộng amount vào account (nhận tiền)
+     * - LIABILITY: trừ amount khỏi account (trả nợ)
+     */
+    private String accountId;
+    
     private BigDecimal amount; // Settlement amount
 
     private String currency; // Currency (default: VND)

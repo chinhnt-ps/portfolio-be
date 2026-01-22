@@ -36,6 +36,12 @@ public class CreateLiabilityRequest {
     
     private LocalDateTime dueAt; // Optional
     
+    /**
+     * Tài khoản trả tiền khi vay (optional)
+     * Nếu có, sẽ trừ amount khỏi account balance
+     */
+    private String accountId;
+    
     @Size(max = 500, message = "Note must not exceed 500 characters")
     private String note;
 }

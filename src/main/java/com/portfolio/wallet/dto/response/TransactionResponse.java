@@ -29,6 +29,9 @@ public class TransactionResponse {
     private String accountId;
     private String fromAccountId;
     private String toAccountId;
+    private String receivableId;
+    private String liabilityId;
+    private String settlementId;
     private String note;
     private List<String> attachmentIds;
     private LocalDateTime createdAt;
@@ -48,6 +51,9 @@ public class TransactionResponse {
                 .accountId(transaction.getAccountId())
                 .fromAccountId(transaction.getFromAccountId())
                 .toAccountId(transaction.getToAccountId())
+                .receivableId(transaction.getReceivableId())
+                .liabilityId(transaction.getLiabilityId())
+                .settlementId(transaction.getSettlementId())
                 .note(transaction.getNote())
                 .attachmentIds(transaction.getAttachmentIds())
                 .createdAt(transaction.getCreatedAt())

@@ -28,6 +28,7 @@ public class ReceivableResponse {
     private ReceivableStatus status;
     private BigDecimal paidAmount;
     private BigDecimal remainingAmount; // amount - paidAmount
+    private String accountId; // Tài khoản nhận tiền (optional)
     private String note;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
@@ -58,6 +59,7 @@ public class ReceivableResponse {
                 .status(receivable.getStatus())
                 .paidAmount(paidAmount)
                 .remainingAmount(remainingAmount)
+                .accountId(receivable.getAccountId())
                 .note(receivable.getNote())
                 .createdAt(receivable.getCreatedAt())
                 .updatedAt(receivable.getUpdatedAt())

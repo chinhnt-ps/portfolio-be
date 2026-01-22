@@ -66,6 +66,7 @@ public class SecurityConfig {
         configuration.setAllowedOrigins(Arrays.asList(
                 "http://localhost:3000",
                 "http://localhost:5173", // Vite default
+                "http://localhost:4173", // Vite preview (Playwright E2E)
                 "https://chinhnt-ps.netlify.app" // Netlify production
         ));
         

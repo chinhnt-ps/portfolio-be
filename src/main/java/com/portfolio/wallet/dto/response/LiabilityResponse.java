@@ -28,6 +28,7 @@ public class LiabilityResponse {
     private LiabilityStatus status;
     private BigDecimal paidAmount;
     private BigDecimal remainingAmount; // amount - paidAmount
+    private String accountId; // Tài khoản trả tiền (optional)
     private String note;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
@@ -58,6 +59,7 @@ public class LiabilityResponse {
                 .status(liability.getStatus())
                 .paidAmount(paidAmount)
                 .remainingAmount(remainingAmount)
+                .accountId(liability.getAccountId())
                 .note(liability.getNote())
                 .createdAt(liability.getCreatedAt())
                 .updatedAt(liability.getUpdatedAt())

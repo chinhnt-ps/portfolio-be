@@ -41,6 +41,12 @@ public class Liability {
 
     private LocalDateTime dueAt; // Ngày đáo hạn (optional)
 
+    /**
+     * Tài khoản trả tiền khi vay (optional)
+     * Nếu có, khi tạo Liability sẽ trừ amount khỏi account balance
+     */
+    private String accountId;
+
     private LiabilityStatus status; // Status: OPEN, PARTIALLY_PAID, PAID, OVERDUE
 
     private BigDecimal paidAmount; // Tổng số tiền đã thanh toán (tính từ settlements)

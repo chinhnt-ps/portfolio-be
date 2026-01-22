@@ -37,6 +37,12 @@ public class CreateSettlementRequest {
     
     private LocalDateTime occurredAt; // Default to now if not provided
     
+    /**
+     * Tài khoản dùng để thanh toán (optional)
+     * Nếu có, sẽ cập nhật account balance khi tạo settlement
+     */
+    private String accountId;
+    
     @Size(max = 500, message = "Note must not exceed 500 characters")
     private String note;
 }

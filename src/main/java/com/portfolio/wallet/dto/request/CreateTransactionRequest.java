@@ -42,6 +42,15 @@ public class CreateTransactionRequest {
     
     private String toAccountId; // Required for TRANSFER
     
+    /**
+     * Liên kết tới công nợ
+     * - receivableId: bắt buộc cho RECEIVABLE_SETTLEMENT
+     * - liabilityId: bắt buộc cho LIABILITY_SETTLEMENT
+     */
+    private String receivableId;
+    
+    private String liabilityId;
+    
     @Size(max = 1000, message = "Note must not exceed 1000 characters")
     private String note;
     

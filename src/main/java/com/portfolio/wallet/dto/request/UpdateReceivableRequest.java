@@ -31,6 +31,11 @@ public class UpdateReceivableRequest {
     
     private LocalDateTime dueAt;
     
+    /**
+     * Tài khoản nhận tiền khi cho vay (optional)
+     */
+    private String accountId;
+    
     @Size(max = 500, message = "Note must not exceed 500 characters")
     private String note;
 }

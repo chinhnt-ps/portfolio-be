@@ -5,9 +5,13 @@ import com.portfolio.wallet.dto.request.CreateAccountRequest;
 import com.portfolio.wallet.dto.request.UpdateAccountRequest;
 import com.portfolio.wallet.dto.response.AccountResponse;
 import com.portfolio.wallet.model.Account;
+import com.portfolio.wallet.model.Liability;
+import com.portfolio.wallet.model.Receivable;
 import com.portfolio.wallet.model.Transaction;
 import com.portfolio.wallet.model.TransactionType;
 import com.portfolio.wallet.repository.AccountRepository;
+import com.portfolio.wallet.repository.LiabilityRepository;
+import com.portfolio.wallet.repository.ReceivableRepository;
 import com.portfolio.wallet.repository.TransactionRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -30,6 +34,8 @@ public class AccountService {
     
     private final AccountRepository accountRepository;
     private final TransactionRepository transactionRepository;
+    private final ReceivableRepository receivableRepository;
+    private final LiabilityRepository liabilityRepository;
     
     /**
      * Calculate current balance for an account
@@ -44,10 +50,17 @@ public class AccountService {
         List<Transaction> toAccountTransactions = transactionRepository.findByToAccountIdAndDeletedFalse(account.getId());
         
         // Add INCOME transactions
+        // Add RECEIVABLE_SETTLEMENT (nhận tiền từ khoản cho vay)
         for (Transaction t : accountTransactions) {
             if (t.getType() == TransactionType.INCOME) {
                 balance = balance.add(t.getAmount());
             } else if (t.getType() == TransactionType.EXPENSE) {
+                balance = balance.subtract(t.getAmount());
+            } else if (t.getType() == TransactionType.RECEIVABLE_SETTLEMENT) {
+                // Nhận tiền từ khoản cho vay -> cộng vào account
+                balance = balance.add(t.getAmount());
+            } else if (t.getType() == TransactionType.LIABILITY_SETTLEMENT) {
+                // Trả nợ -> trừ khỏi account
                 balance = balance.subtract(t.getAmount());
             }
         }
@@ -63,6 +76,30 @@ public class AccountService {
         for (Transaction t : toAccountTransactions) {
             if (t.getType() == TransactionType.TRANSFER) {
                 balance = balance.add(t.getAmount());
+            }
+        }
+        
+        // Tính từ Receivable có accountId này
+        // Receivable = Cho vay = Đã đưa tiền cho người khác → trừ khỏi balance
+        List<Receivable> receivables = receivableRepository.findByUserIdAndDeletedFalse(account.getUserId());
+        for (Receivable r : receivables) {
+            if (r.getAccountId() != null && r.getAccountId().equals(account.getId())) {
+                // Trừ số tiền còn lại phải thu (remainingAmount = amount - paidAmount)
+                BigDecimal paidAmount = r.getPaidAmount() != null ? r.getPaidAmount() : BigDecimal.ZERO;
+                BigDecimal remainingAmount = r.getAmount().subtract(paidAmount);
+                balance = balance.subtract(remainingAmount);
+            }
+        }
+        
+        // Tính từ Liability có accountId này
+        // Liability = Vay nợ = Đã nhận tiền từ người khác → cộng vào balance
+        List<Liability> liabilities = liabilityRepository.findByUserIdAndDeletedFalse(account.getUserId());
+        for (Liability l : liabilities) {
+            if (l.getAccountId() != null && l.getAccountId().equals(account.getId())) {
+                // Cộng số tiền còn lại phải trả (remainingAmount = amount - paidAmount)
+                BigDecimal paidAmount = l.getPaidAmount() != null ? l.getPaidAmount() : BigDecimal.ZERO;
+                BigDecimal remainingAmount = l.getAmount().subtract(paidAmount);
+                balance = balance.add(remainingAmount);
             }
         }
         

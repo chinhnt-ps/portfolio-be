@@ -36,6 +36,12 @@ public class CreateReceivableRequest {
     
     private LocalDateTime dueAt; // Optional
     
+    /**
+     * Tài khoản nhận tiền khi cho vay (optional)
+     * Nếu có, sẽ cộng amount vào account balance
+     */
+    private String accountId;
+    
     @Size(max = 500, message = "Note must not exceed 500 characters")
     private String note;
 }

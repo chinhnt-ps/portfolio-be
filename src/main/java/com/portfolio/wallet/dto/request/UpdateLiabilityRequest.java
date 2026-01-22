@@ -31,6 +31,11 @@ public class UpdateLiabilityRequest {
     
     private LocalDateTime dueAt;
     
+    /**
+     * Tài khoản trả tiền khi vay (optional)
+     */
+    private String accountId;
+    
     @Size(max = 500, message = "Note must not exceed 500 characters")
     private String note;
 }

@@ -23,6 +23,8 @@ public class SettlementResponse {
     private SettlementType type;
     private String receivableId;
     private String liabilityId;
+    private String transactionId;
+    private String accountId; // Tài khoản thanh toán (optional)
     private BigDecimal amount;
     private String currency;
     private LocalDateTime occurredAt;
@@ -39,6 +41,8 @@ public class SettlementResponse {
                 .type(settlement.getType())
                 .receivableId(settlement.getReceivableId())
                 .liabilityId(settlement.getLiabilityId())
+                .transactionId(settlement.getTransactionId())
+                .accountId(settlement.getAccountId())
                 .amount(settlement.getAmount())
                 .currency(settlement.getCurrency())
                 .occurredAt(settlement.getOccurredAt())

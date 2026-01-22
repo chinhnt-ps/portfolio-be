@@ -41,6 +41,12 @@ public class Receivable {
 
     private LocalDateTime dueAt; // Ngày đáo hạn (optional)
 
+    /**
+     * Tài khoản nhận tiền khi cho vay (optional)
+     * Nếu có, khi tạo Receivable sẽ cộng amount vào account balance
+     */
+    private String accountId;
+
     private ReceivableStatus status; // Status: OPEN, PARTIALLY_PAID, PAID, OVERDUE
 
     private BigDecimal paidAmount; // Tổng số tiền đã thanh toán (tính từ settlements)

@@ -48,6 +48,20 @@ public class Transaction {
     
     private String toAccountId; // To account ID (for TRANSFER)
     
+    /**
+     * Liên kết tới công nợ (optional)
+     * - receivableId: dùng cho RECEIVABLE_SETTLEMENT
+     * - liabilityId: dùng cho LIABILITY_SETTLEMENT
+     */
+    private String receivableId;
+    
+    private String liabilityId;
+    
+    /**
+     * Liên kết ngược tới Settlement được tạo từ giao dịch này (nếu có)
+     */
+    private String settlementId;
+    
     private String note; // Ghi chú
     
     private List<String> attachmentIds; // File attachment IDs (optional)
