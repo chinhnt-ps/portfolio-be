@@ -2,13 +2,17 @@ package com.portfolio.wallet.service;
 
 import com.portfolio.common.exception.NotFoundException;
 import com.portfolio.wallet.dto.request.CreateReceivableRequest;
+import com.portfolio.wallet.dto.request.CreateTransactionRequest;
 import com.portfolio.wallet.dto.request.UpdateReceivableRequest;
 import com.portfolio.wallet.dto.response.ReceivableResponse;
 import com.portfolio.wallet.model.Receivable;
 import com.portfolio.wallet.model.ReceivableStatus;
+import com.portfolio.wallet.model.TransactionType;
+import com.portfolio.wallet.repository.AccountRepository;
 import com.portfolio.wallet.repository.ReceivableRepository;
-import lombok.RequiredArgsConstructor;
+import com.portfolio.wallet.service.TransactionService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -24,10 +28,21 @@ import java.util.stream.Collectors;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class ReceivableService {
     
     private final ReceivableRepository receivableRepository;
+    private final AccountRepository accountRepository;
+    private final TransactionService transactionService;
+    
+    // Constructor với @Lazy để tránh circular dependency
+    public ReceivableService(
+            ReceivableRepository receivableRepository,
+            AccountRepository accountRepository,
+            @Lazy TransactionService transactionService) {
+        this.receivableRepository = receivableRepository;
+        this.accountRepository = accountRepository;
+        this.transactionService = transactionService;
+    }
     
     /**
      * Get all receivables for a user (paginated)
@@ -84,6 +99,13 @@ public class ReceivableService {
                 throw new IllegalArgumentException("Amount cannot be null");
             }
             
+            // Validate accountId nếu có
+            if (request.getAccountId() != null && !request.getAccountId().isEmpty()) {
+                if (!accountRepository.existsByIdAndUserIdAndDeletedFalse(request.getAccountId(), userId)) {
+                    throw new NotFoundException("Account not found");
+                }
+            }
+            
             Receivable receivable = Receivable.builder()
                     .userId(userId)
                     .counterpartyName(request.getCounterpartyName())
@@ -91,6 +113,7 @@ public class ReceivableService {
                     .currency(request.getCurrency() != null ? request.getCurrency() : "VND")
                     .occurredAt(request.getOccurredAt() != null ? request.getOccurredAt() : LocalDateTime.now())
                     .dueAt(request.getDueAt())
+                    .accountId(request.getAccountId())
                     .status(ReceivableStatus.OPEN) // Will be updated by updateStatus
                     .paidAmount(BigDecimal.ZERO)
                     .note(request.getNote())
@@ -100,6 +123,31 @@ public class ReceivableService {
             // Update status before saving
             updateStatus(receivable);
             Receivable saved = receivableRepository.save(receivable);
+            
+            // Nếu có accountId, tự động tạo transaction EXPENSE để ghi nhận tiền cho vay (tiền đi ra)
+            if (saved.getAccountId() != null && !saved.getAccountId().isEmpty()) {
+                try {
+                    CreateTransactionRequest transactionRequest = CreateTransactionRequest.builder()
+                            .type(TransactionType.EXPENSE)
+                            .amount(saved.getAmount())
+                            .currency(saved.getCurrency())
+                            .occurredAt(saved.getOccurredAt())
+                            .accountId(saved.getAccountId())
+                            .receivableId(saved.getId())
+                            .note(saved.getNote() != null ? 
+                                    "Cho vay: " + saved.getNote() : 
+                                    "Cho vay: " + saved.getCounterpartyName())
+                            .build();
+                    
+                    transactionService.createTransaction(transactionRequest, userId);
+                    log.debug("Auto-created EXPENSE transaction for receivable: {}", saved.getId());
+                } catch (Exception e) {
+                    log.error("Failed to create transaction for receivable {}: {}", 
+                            saved.getId(), e.getMessage(), e);
+                    // Không throw exception để không ảnh hưởng đến việc tạo receivable
+                }
+            }
+            
             log.info("Receivable created successfully: {}", saved.getId());
             return ReceivableResponse.from(saved);
         } catch (Exception e) {
@@ -133,6 +181,15 @@ public class ReceivableService {
         }
         if (request.getDueAt() != null) {
             receivable.setDueAt(request.getDueAt());
+        }
+        if (request.getAccountId() != null) {
+            // Validate accountId nếu có
+            if (!request.getAccountId().isEmpty()) {
+                if (!accountRepository.existsByIdAndUserIdAndDeletedFalse(request.getAccountId(), userId)) {
+                    throw new NotFoundException("Account not found");
+                }
+            }
+            receivable.setAccountId(request.getAccountId().isEmpty() ? null : request.getAccountId());
         }
         if (request.getNote() != null) {
             receivable.setNote(request.getNote());

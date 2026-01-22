@@ -75,7 +75,7 @@ public class SettlementService {
         log.debug("Getting settlements for receivable: {} for user: {}", receivableId, userId);
         
         // Verify receivable belongs to user
-        Receivable receivable = receivableRepository.findByIdAndUserIdAndDeletedFalse(receivableId, userId)
+        receivableRepository.findByIdAndUserIdAndDeletedFalse(receivableId, userId)
                 .orElseThrow(() -> new NotFoundException("Receivable not found"));
         
         List<Settlement> settlements = settlementRepository.findByReceivableIdAndDeletedFalse(receivableId);
@@ -91,7 +91,7 @@ public class SettlementService {
         log.debug("Getting settlements for liability: {} for user: {}", liabilityId, userId);
         
         // Verify liability belongs to user
-        Liability liability = liabilityRepository.findByIdAndUserIdAndDeletedFalse(liabilityId, userId)
+        liabilityRepository.findByIdAndUserIdAndDeletedFalse(liabilityId, userId)
                 .orElseThrow(() -> new NotFoundException("Liability not found"));
         
         List<Settlement> settlements = settlementRepository.findByLiabilityIdAndDeletedFalse(liabilityId);
@@ -107,72 +107,21 @@ public class SettlementService {
     public SettlementResponse createSettlement(CreateSettlementRequest request, String userId) {
         log.debug("Creating settlement for user: {}", userId);
         
-        // Validate request
-        if (request.getType() == SettlementType.RECEIVABLE) {
-            if (request.getReceivableId() == null || request.getReceivableId().trim().isEmpty()) {
-                throw new IllegalArgumentException("Receivable ID is required for RECEIVABLE type");
-            }
-            if (request.getLiabilityId() != null) {
-                throw new IllegalArgumentException("Liability ID should not be provided for RECEIVABLE type");
-            }
-        } else if (request.getType() == SettlementType.LIABILITY) {
-            if (request.getLiabilityId() == null || request.getLiabilityId().trim().isEmpty()) {
-                throw new IllegalArgumentException("Liability ID is required for LIABILITY type");
-            }
-            if (request.getReceivableId() != null) {
-                throw new IllegalArgumentException("Receivable ID should not be provided for LIABILITY type");
-            }
-        }
+        // Validate tham chiếu
+        validateSettlementRefs(request.getType(), request.getReceivableId(), request.getLiabilityId());
         
-        // Get the receivable or liability and verify ownership
-        BigDecimal originalAmount;
-        if (request.getType() == SettlementType.RECEIVABLE) {
-            Receivable receivable = receivableRepository.findByIdAndUserIdAndDeletedFalse(
-                    request.getReceivableId(), userId)
-                    .orElseThrow(() -> new NotFoundException("Receivable not found"));
-            originalAmount = receivable.getAmount();
-            log.debug("Creating settlement for receivable: {}, original amount: {}", 
-                    receivable.getId(), originalAmount);
-        } else {
-            Liability liability = liabilityRepository.findByIdAndUserIdAndDeletedFalse(
-                    request.getLiabilityId(), userId)
-                    .orElseThrow(() -> new NotFoundException("Liability not found"));
-            originalAmount = liability.getAmount();
-            log.debug("Creating settlement for liability: {}, original amount: {}", 
-                    liability.getId(), originalAmount);
-        }
-        
-        // Calculate total existing settlements
-        BigDecimal totalSettlements = calculateTotalSettlements(
+        Settlement saved = createSettlementInternal(
                 request.getType(),
                 request.getReceivableId(),
-                request.getLiabilityId());
-        
-        // Validate: total settlements (including new one) <= original amount
-        BigDecimal newTotal = totalSettlements.add(request.getAmount());
-        if (newTotal.compareTo(originalAmount) > 0) {
-            throw new ConflictException(
-                    String.format("Total settlement amount (%.2f) exceeds original amount (%.2f)",
-                            newTotal, originalAmount));
-        }
-        
-        // Create settlement
-        Settlement settlement = Settlement.builder()
-                .userId(userId)
-                .type(request.getType())
-                .receivableId(request.getReceivableId())
-                .liabilityId(request.getLiabilityId())
-                .amount(request.getAmount())
-                .currency(request.getCurrency() != null ? request.getCurrency() : "VND")
-                .occurredAt(request.getOccurredAt() != null ? request.getOccurredAt() : LocalDateTime.now())
-                .note(request.getNote())
-                .deleted(false)
-                .build();
-        
-        Settlement saved = settlementRepository.save(settlement);
-        
-        // Update paid amount in receivable/liability
-        updatePaidAmount(request.getType(), request.getReceivableId(), request.getLiabilityId());
+                request.getLiabilityId(),
+                request.getAmount(),
+                request.getCurrency(),
+                request.getOccurredAt(),
+                request.getNote(),
+                userId,
+                null,
+                request.getAccountId()
+        );
         
         log.info("Settlement created successfully: {}", saved.getId());
         return SettlementResponse.from(saved);
@@ -264,6 +213,80 @@ public class SettlementService {
     }
     
     /**
+     * Tạo settlement gắn với 1 transaction cụ thể (dùng cho RECEIVABLE_SETTLEMENT / LIABILITY_SETTLEMENT)
+     */
+    @Transactional
+    public Settlement createSettlementForTransaction(
+            SettlementType type,
+            String receivableId,
+            String liabilityId,
+            BigDecimal amount,
+            String currency,
+            LocalDateTime occurredAt,
+            String note,
+            String userId,
+            String transactionId,
+            String accountId
+    ) {
+        log.debug("Creating settlement from transaction: {}, type: {}", transactionId, type);
+        
+        validateSettlementRefs(type, receivableId, liabilityId);
+        
+        return createSettlementInternal(
+                type,
+                receivableId,
+                liabilityId,
+                amount,
+                currency,
+                occurredAt,
+                note,
+                userId,
+                transactionId,
+                accountId
+        );
+    }
+    
+    /**
+     * Validate settlement amount before creating (used by TransactionService)
+     * Throws ConflictException if total would exceed original amount
+     */
+    public void validateSettlementAmount(
+            SettlementType type,
+            String receivableId,
+            String liabilityId,
+            BigDecimal newAmount,
+            String userId
+    ) {
+        // Get the receivable or liability and verify ownership
+        BigDecimal originalAmount;
+        if (type == SettlementType.RECEIVABLE) {
+            originalAmount = receivableRepository.findByIdAndUserIdAndDeletedFalse(
+                            receivableId, userId)
+                    .orElseThrow(() -> new NotFoundException("Receivable not found"))
+                    .getAmount();
+        } else {
+            originalAmount = liabilityRepository.findByIdAndUserIdAndDeletedFalse(
+                            liabilityId, userId)
+                    .orElseThrow(() -> new NotFoundException("Liability not found"))
+                    .getAmount();
+        }
+        
+        // Calculate total existing settlements
+        BigDecimal totalSettlements = calculateTotalSettlements(
+                type,
+                receivableId,
+                liabilityId);
+        
+        // Validate: total settlements (including new one) <= original amount
+        BigDecimal newTotal = totalSettlements.add(newAmount);
+        if (newTotal.compareTo(originalAmount) > 0) {
+            throw new ConflictException(
+                    String.format("Total settlement amount (%.2f) exceeds original amount (%.2f)",
+                            newTotal, originalAmount));
+        }
+    }
+    
+    /**
      * Calculate total settlements for a receivable or liability
      */
     private BigDecimal calculateTotalSettlements(SettlementType type, String receivableId, String liabilityId) {
@@ -290,5 +313,96 @@ public class SettlementService {
         } else {
             liabilityService.updatePaidAmount(liabilityId, totalPaid);
         }
+    }
+    
+    /**
+     * Validate kết hợp type và receivableId/liabilityId
+     */
+    private void validateSettlementRefs(SettlementType type, String receivableId, String liabilityId) {
+        if (type == SettlementType.RECEIVABLE) {
+            if (receivableId == null || receivableId.trim().isEmpty()) {
+                throw new IllegalArgumentException("Receivable ID is required for RECEIVABLE type");
+            }
+            if (liabilityId != null) {
+                throw new IllegalArgumentException("Liability ID should not be provided for RECEIVABLE type");
+            }
+        } else if (type == SettlementType.LIABILITY) {
+            if (liabilityId == null || liabilityId.trim().isEmpty()) {
+                throw new IllegalArgumentException("Liability ID is required for LIABILITY type");
+            }
+            if (receivableId != null) {
+                throw new IllegalArgumentException("Receivable ID should not be provided for LIABILITY type");
+            }
+        }
+    }
+    
+    /**
+     * Logic chung tạo settlement + validate tổng tiền, update paidAmount
+     */
+    private Settlement createSettlementInternal(
+            SettlementType type,
+            String receivableId,
+            String liabilityId,
+            BigDecimal amount,
+            String currency,
+            LocalDateTime occurredAt,
+            String note,
+            String userId,
+            String transactionId,
+            String accountId
+    ) {
+        // Get the receivable or liability and verify ownership
+        BigDecimal originalAmount;
+        if (type == SettlementType.RECEIVABLE) {
+            originalAmount = receivableRepository.findByIdAndUserIdAndDeletedFalse(
+                            receivableId, userId)
+                    .orElseThrow(() -> new NotFoundException("Receivable not found"))
+                    .getAmount();
+            log.debug("Creating settlement for receivable: {}, original amount: {}",
+                    receivableId, originalAmount);
+        } else {
+            originalAmount = liabilityRepository.findByIdAndUserIdAndDeletedFalse(
+                            liabilityId, userId)
+                    .orElseThrow(() -> new NotFoundException("Liability not found"))
+                    .getAmount();
+            log.debug("Creating settlement for liability: {}, original amount: {}",
+                    liabilityId, originalAmount);
+        }
+        
+        // Calculate total existing settlements
+        BigDecimal totalSettlements = calculateTotalSettlements(
+                type,
+                receivableId,
+                liabilityId);
+        
+        // Validate: total settlements (including new one) <= original amount
+        BigDecimal newTotal = totalSettlements.add(amount);
+        if (newTotal.compareTo(originalAmount) > 0) {
+            throw new ConflictException(
+                    String.format("Total settlement amount (%.2f) exceeds original amount (%.2f)",
+                            newTotal, originalAmount));
+        }
+        
+        // Create settlement
+        Settlement settlement = Settlement.builder()
+                .userId(userId)
+                .type(type)
+                .receivableId(receivableId)
+                .liabilityId(liabilityId)
+                .transactionId(transactionId)
+                .accountId(accountId)
+                .amount(amount)
+                .currency(currency != null ? currency : "VND")
+                .occurredAt(occurredAt != null ? occurredAt : LocalDateTime.now())
+                .note(note)
+                .deleted(false)
+                .build();
+        
+        Settlement saved = settlementRepository.save(settlement);
+        
+        // Update paid amount in receivable/liability
+        updatePaidAmount(type, receivableId, liabilityId);
+        
+        return saved;
     }
 }

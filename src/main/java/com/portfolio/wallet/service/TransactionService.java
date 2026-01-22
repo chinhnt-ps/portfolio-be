@@ -8,13 +8,16 @@ import com.portfolio.wallet.dto.request.UpdateTransactionRequest;
 import com.portfolio.wallet.dto.response.TransactionResponse;
 import com.portfolio.wallet.model.Transaction;
 import com.portfolio.wallet.model.TransactionType;
+import com.portfolio.wallet.model.Settlement;
+import com.portfolio.wallet.model.SettlementType;
 import com.portfolio.wallet.repository.AccountRepository;
 import com.portfolio.wallet.repository.CategoryRepository;
+import com.portfolio.wallet.repository.ReceivableRepository;
+import com.portfolio.wallet.repository.LiabilityRepository;
 import com.portfolio.wallet.repository.TransactionRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.mongodb.core.MongoTemplate;
@@ -24,7 +27,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -38,6 +40,9 @@ public class TransactionService {
     private final TransactionRepository transactionRepository;
     private final AccountRepository accountRepository;
     private final CategoryRepository categoryRepository;
+    private final ReceivableRepository receivableRepository;
+    private final LiabilityRepository liabilityRepository;
+    private final SettlementService settlementService;
     private final MongoTemplate mongoTemplate;
     
     /**
@@ -150,6 +155,22 @@ public class TransactionService {
         // Validate transaction based on type
         validateTransactionRequest(request, userId);
         
+        // Validate settlement amount BEFORE saving transaction (to prevent account balance changes)
+        if (request.getType() == TransactionType.RECEIVABLE_SETTLEMENT
+                || request.getType() == TransactionType.LIABILITY_SETTLEMENT) {
+            SettlementType settlementType = request.getType() == TransactionType.RECEIVABLE_SETTLEMENT
+                    ? SettlementType.RECEIVABLE
+                    : SettlementType.LIABILITY;
+            
+            settlementService.validateSettlementAmount(
+                    settlementType,
+                    request.getReceivableId(),
+                    request.getLiabilityId(),
+                    request.getAmount(),
+                    userId
+            );
+        }
+        
         Transaction transaction = Transaction.builder()
                 .userId(userId)
                 .type(request.getType())
@@ -160,12 +181,40 @@ public class TransactionService {
                 .accountId(request.getAccountId())
                 .fromAccountId(request.getFromAccountId())
                 .toAccountId(request.getToAccountId())
+                .receivableId(request.getReceivableId())
+                .liabilityId(request.getLiabilityId())
                 .note(request.getNote())
                 .attachmentIds(request.getAttachmentIds())
                 .deleted(false)
                 .build();
         
         Transaction saved = transactionRepository.save(transaction);
+        
+        // Nếu là giao dịch thanh toán công nợ thì tự động tạo Settlement gắn kèm
+        if (saved.getType() == TransactionType.RECEIVABLE_SETTLEMENT
+                || saved.getType() == TransactionType.LIABILITY_SETTLEMENT) {
+            SettlementType settlementType = saved.getType() == TransactionType.RECEIVABLE_SETTLEMENT
+                    ? SettlementType.RECEIVABLE
+                    : SettlementType.LIABILITY;
+            
+            Settlement settlement = settlementService.createSettlementForTransaction(
+                    settlementType,
+                    saved.getReceivableId(),
+                    saved.getLiabilityId(),
+                    saved.getAmount(),
+                    saved.getCurrency(),
+                    saved.getOccurredAt(),
+                    saved.getNote(),
+                    userId,
+                    saved.getId(),
+                    saved.getAccountId()
+            );
+            
+            // Lưu lại settlementId trên transaction để tiện truy vết 2 chiều
+            saved.setSettlementId(settlement.getId());
+            saved = transactionRepository.save(saved);
+        }
+        
         log.info("Transaction created successfully: {}", saved.getId());
         return TransactionResponse.from(saved);
     }
@@ -240,7 +289,9 @@ public class TransactionService {
      * Validate transaction request
      */
     private void validateTransactionRequest(CreateTransactionRequest request, String userId) {
-        if (request.getType() == TransactionType.TRANSFER) {
+        TransactionType type = request.getType();
+        
+        if (type == TransactionType.TRANSFER) {
             // TRANSFER requires fromAccountId and toAccountId
             if (request.getFromAccountId() == null || request.getToAccountId() == null) {
                 throw new BusinessException("TRANSFER transactions require both fromAccountId and toAccountId");
@@ -255,20 +306,64 @@ public class TransactionService {
             if (!accountRepository.existsByIdAndUserIdAndDeletedFalse(request.getToAccountId(), userId)) {
                 throw new NotFoundException("To account not found");
             }
-        } else {
-            // EXPENSE/INCOME require accountId and categoryId
+            return;
+        }
+        
+        if (type == TransactionType.EXPENSE || type == TransactionType.INCOME) {
+            // EXPENSE/INCOME require accountId
             if (request.getAccountId() == null) {
-                throw new BusinessException("Account ID is required for " + request.getType() + " transactions");
+                throw new BusinessException("Account ID is required for " + type + " transactions");
             }
-            if (request.getCategoryId() == null) {
-                throw new BusinessException("Category ID is required for " + request.getType() + " transactions");
+            // CategoryId là bắt buộc trừ khi transaction được tạo tự động từ receivable/liability
+            if (request.getCategoryId() == null && request.getReceivableId() == null && request.getLiabilityId() == null) {
+                throw new BusinessException("Category ID is required for " + type + " transactions");
             }
             // Validate account exists and belongs to user
             if (!accountRepository.existsByIdAndUserIdAndDeletedFalse(request.getAccountId(), userId)) {
                 throw new NotFoundException("Account not found");
             }
-            // Validate category exists
-            if (!categoryRepository.existsByIdAndDeletedFalse(request.getCategoryId())) {
+            // Validate category exists (nếu có)
+            if (request.getCategoryId() != null
+                    && !categoryRepository.existsByIdAndDeletedFalse(request.getCategoryId())) {
+                throw new NotFoundException("Category not found");
+            }
+            return;
+        }
+        
+        if (type == TransactionType.RECEIVABLE_SETTLEMENT) {
+            if (request.getReceivableId() == null) {
+                throw new BusinessException("Receivable ID is required for RECEIVABLE_SETTLEMENT transactions");
+            }
+            receivableRepository.findByIdAndUserIdAndDeletedFalse(request.getReceivableId(), userId)
+                    .orElseThrow(() -> new NotFoundException("Receivable not found"));
+            // AccountId là optional cho settlement
+            if (request.getAccountId() != null && !request.getAccountId().isEmpty()) {
+                if (!accountRepository.existsByIdAndUserIdAndDeletedFalse(request.getAccountId(), userId)) {
+                    throw new NotFoundException("Account not found");
+                }
+            }
+            // Category là optional cho settlement; nếu client truyền lên thì validate
+            if (request.getCategoryId() != null
+                    && !categoryRepository.existsByIdAndDeletedFalse(request.getCategoryId())) {
+                throw new NotFoundException("Category not found");
+            }
+            return;
+        }
+        
+        if (type == TransactionType.LIABILITY_SETTLEMENT) {
+            if (request.getLiabilityId() == null) {
+                throw new BusinessException("Liability ID is required for LIABILITY_SETTLEMENT transactions");
+            }
+            liabilityRepository.findByIdAndUserIdAndDeletedFalse(request.getLiabilityId(), userId)
+                    .orElseThrow(() -> new NotFoundException("Liability not found"));
+            // AccountId là optional cho settlement
+            if (request.getAccountId() != null && !request.getAccountId().isEmpty()) {
+                if (!accountRepository.existsByIdAndUserIdAndDeletedFalse(request.getAccountId(), userId)) {
+                    throw new NotFoundException("Account not found");
+                }
+            }
+            if (request.getCategoryId() != null
+                    && !categoryRepository.existsByIdAndDeletedFalse(request.getCategoryId())) {
                 throw new NotFoundException("Category not found");
             }
         }
@@ -297,7 +392,10 @@ public class TransactionService {
             if (!accountRepository.existsByIdAndUserIdAndDeletedFalse(toAccountId, userId)) {
                 throw new NotFoundException("To account not found");
             }
-        } else {
+            return;
+        }
+        
+        if (newType == TransactionType.EXPENSE || newType == TransactionType.INCOME) {
             String accountId = request.getAccountId() != null ? request.getAccountId() : existing.getAccountId();
             String categoryId = request.getCategoryId() != null ? request.getCategoryId() : existing.getCategoryId();
             
@@ -313,6 +411,50 @@ public class TransactionService {
             }
             // Validate category
             if (!categoryRepository.existsByIdAndDeletedFalse(categoryId)) {
+                throw new NotFoundException("Category not found");
+            }
+            return;
+        }
+        
+        if (newType == TransactionType.RECEIVABLE_SETTLEMENT) {
+            String accountId = request.getAccountId() != null ? request.getAccountId() : existing.getAccountId();
+            String receivableId = request.getReceivableId() != null ? request.getReceivableId() : existing.getReceivableId();
+            String categoryId = request.getCategoryId() != null ? request.getCategoryId() : existing.getCategoryId();
+            
+            if (receivableId == null) {
+                throw new BusinessException("Receivable ID is required for RECEIVABLE_SETTLEMENT transactions");
+            }
+            receivableRepository.findByIdAndUserIdAndDeletedFalse(receivableId, userId)
+                    .orElseThrow(() -> new NotFoundException("Receivable not found"));
+            // AccountId là optional cho settlement
+            if (accountId != null && !accountId.isEmpty()) {
+                if (!accountRepository.existsByIdAndUserIdAndDeletedFalse(accountId, userId)) {
+                    throw new NotFoundException("Account not found");
+                }
+            }
+            if (categoryId != null && !categoryRepository.existsByIdAndDeletedFalse(categoryId)) {
+                throw new NotFoundException("Category not found");
+            }
+            return;
+        }
+        
+        if (newType == TransactionType.LIABILITY_SETTLEMENT) {
+            String accountId = request.getAccountId() != null ? request.getAccountId() : existing.getAccountId();
+            String liabilityId = request.getLiabilityId() != null ? request.getLiabilityId() : existing.getLiabilityId();
+            String categoryId = request.getCategoryId() != null ? request.getCategoryId() : existing.getCategoryId();
+            
+            if (liabilityId == null) {
+                throw new BusinessException("Liability ID is required for LIABILITY_SETTLEMENT transactions");
+            }
+            liabilityRepository.findByIdAndUserIdAndDeletedFalse(liabilityId, userId)
+                    .orElseThrow(() -> new NotFoundException("Liability not found"));
+            // AccountId là optional cho settlement
+            if (accountId != null && !accountId.isEmpty()) {
+                if (!accountRepository.existsByIdAndUserIdAndDeletedFalse(accountId, userId)) {
+                    throw new NotFoundException("Account not found");
+                }
+            }
+            if (categoryId != null && !categoryRepository.existsByIdAndDeletedFalse(categoryId)) {
                 throw new NotFoundException("Category not found");
             }
         }

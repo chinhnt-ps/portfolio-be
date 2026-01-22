@@ -2,13 +2,17 @@ package com.portfolio.wallet.service;
 
 import com.portfolio.common.exception.NotFoundException;
 import com.portfolio.wallet.dto.request.CreateLiabilityRequest;
+import com.portfolio.wallet.dto.request.CreateTransactionRequest;
 import com.portfolio.wallet.dto.request.UpdateLiabilityRequest;
 import com.portfolio.wallet.dto.response.LiabilityResponse;
 import com.portfolio.wallet.model.Liability;
 import com.portfolio.wallet.model.LiabilityStatus;
+import com.portfolio.wallet.model.TransactionType;
+import com.portfolio.wallet.repository.AccountRepository;
 import com.portfolio.wallet.repository.LiabilityRepository;
-import lombok.RequiredArgsConstructor;
+import com.portfolio.wallet.service.TransactionService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -24,10 +28,21 @@ import java.util.stream.Collectors;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class LiabilityService {
     
     private final LiabilityRepository liabilityRepository;
+    private final AccountRepository accountRepository;
+    private final TransactionService transactionService;
+    
+    // Constructor với @Lazy để tránh circular dependency
+    public LiabilityService(
+            LiabilityRepository liabilityRepository,
+            AccountRepository accountRepository,
+            @Lazy TransactionService transactionService) {
+        this.liabilityRepository = liabilityRepository;
+        this.accountRepository = accountRepository;
+        this.transactionService = transactionService;
+    }
     
     /**
      * Get all liabilities for a user (paginated)
@@ -84,6 +99,13 @@ public class LiabilityService {
                 throw new IllegalArgumentException("Amount cannot be null");
             }
             
+            // Validate accountId nếu có
+            if (request.getAccountId() != null && !request.getAccountId().isEmpty()) {
+                if (!accountRepository.existsByIdAndUserIdAndDeletedFalse(request.getAccountId(), userId)) {
+                    throw new NotFoundException("Account not found");
+                }
+            }
+            
             Liability liability = Liability.builder()
                     .userId(userId)
                     .counterpartyName(request.getCounterpartyName())
@@ -91,6 +113,7 @@ public class LiabilityService {
                     .currency(request.getCurrency() != null ? request.getCurrency() : "VND")
                     .occurredAt(request.getOccurredAt() != null ? request.getOccurredAt() : LocalDateTime.now())
                     .dueAt(request.getDueAt())
+                    .accountId(request.getAccountId())
                     .status(LiabilityStatus.OPEN)
                     .paidAmount(BigDecimal.ZERO)
                     .note(request.getNote())
@@ -100,6 +123,31 @@ public class LiabilityService {
             // Update status before saving
             updateStatus(liability);
             Liability saved = liabilityRepository.save(liability);
+            
+            // Nếu có accountId, tự động tạo transaction INCOME để ghi nhận tiền vay (tiền vào)
+            if (saved.getAccountId() != null && !saved.getAccountId().isEmpty()) {
+                try {
+                    CreateTransactionRequest transactionRequest = CreateTransactionRequest.builder()
+                            .type(TransactionType.INCOME)
+                            .amount(saved.getAmount())
+                            .currency(saved.getCurrency())
+                            .occurredAt(saved.getOccurredAt())
+                            .accountId(saved.getAccountId())
+                            .liabilityId(saved.getId())
+                            .note(saved.getNote() != null ? 
+                                    "Vay: " + saved.getNote() : 
+                                    "Vay: " + saved.getCounterpartyName())
+                            .build();
+                    
+                    transactionService.createTransaction(transactionRequest, userId);
+                    log.debug("Auto-created INCOME transaction for liability: {}", saved.getId());
+                } catch (Exception e) {
+                    log.error("Failed to create transaction for liability {}: {}", 
+                            saved.getId(), e.getMessage(), e);
+                    // Không throw exception để không ảnh hưởng đến việc tạo liability
+                }
+            }
+            
             log.info("Liability created successfully: {}", saved.getId());
             return LiabilityResponse.from(saved);
         } catch (Exception e) {
@@ -133,6 +181,15 @@ public class LiabilityService {
         }
         if (request.getDueAt() != null) {
             liability.setDueAt(request.getDueAt());
+        }
+        if (request.getAccountId() != null) {
+            // Validate accountId nếu có
+            if (!request.getAccountId().isEmpty()) {
+                if (!accountRepository.existsByIdAndUserIdAndDeletedFalse(request.getAccountId(), userId)) {
+                    throw new NotFoundException("Account not found");
+                }
+            }
+            liability.setAccountId(request.getAccountId().isEmpty() ? null : request.getAccountId());
         }
         if (request.getNote() != null) {
             liability.setNote(request.getNote());
