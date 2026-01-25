@@ -156,6 +156,7 @@ public class AccountService {
                 .type(request.getType())
                 .currency(request.getCurrency() != null ? request.getCurrency() : "VND")
                 .openingBalance(request.getOpeningBalance() != null ? request.getOpeningBalance() : java.math.BigDecimal.ZERO)
+                .creditLimit(request.getCreditLimit()) // POSTPAID: hạn mức tín dụng
                 .note(request.getNote())
                 .deleted(false)
                 .build();
@@ -188,6 +189,9 @@ public class AccountService {
         }
         if (request.getOpeningBalance() != null) {
             account.setOpeningBalance(request.getOpeningBalance());
+        }
+        if (request.getCreditLimit() != null) {
+            account.setCreditLimit(request.getCreditLimit());
         }
         if (request.getNote() != null) {
             account.setNote(request.getNote());

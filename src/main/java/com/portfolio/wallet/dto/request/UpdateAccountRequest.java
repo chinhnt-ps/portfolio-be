@@ -27,6 +27,12 @@ public class UpdateAccountRequest {
     
     private BigDecimal openingBalance;
     
+    /**
+     * Hạn mức tín dụng (chỉ dùng cho POSTPAID, nullable)
+     * null = không giới hạn
+     */
+    private BigDecimal creditLimit;
+    
     @Size(max = 500, message = "Note must not exceed 500 characters")
     private String note;
 }

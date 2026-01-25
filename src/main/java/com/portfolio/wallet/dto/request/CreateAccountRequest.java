@@ -33,6 +33,12 @@ public class CreateAccountRequest {
     @Builder.Default
     private BigDecimal openingBalance = BigDecimal.ZERO;
     
+    /**
+     * Hạn mức tín dụng (chỉ dùng cho POSTPAID, nullable)
+     * null = không giới hạn
+     */
+    private BigDecimal creditLimit;
+    
     @Size(max = 500, message = "Note must not exceed 500 characters")
     private String note;
 }

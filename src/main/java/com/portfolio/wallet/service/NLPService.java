@@ -96,6 +96,18 @@ public class NLPService {
             .collect(Collectors.toList());
         context.put("accounts", accountList);
         
+        // Load POSTPAID accounts separately for settlement matching
+        List<Map<String, Object>> postpaidAccountList = accounts.stream()
+            .filter(acc -> acc.getType() == AccountType.POSTPAID)
+            .map(acc -> {
+                Map<String, Object> map = new HashMap<>();
+                map.put("id", acc.getId());
+                map.put("name", acc.getName());
+                return map;
+            })
+            .collect(Collectors.toList());
+        context.put("postpaidAccounts", postpaidAccountList);
+        
         // Load categories
         List<Category> categories = categoryRepository.findAllCategoriesForUser(userId);
         List<Map<String, Object>> categoryList = categories.stream()
@@ -501,10 +513,30 @@ public class NLPService {
      * Settlement có thể là:
      * - Nhận tiền trả nợ (RECEIVABLE settlement) - "Long trả 100k"
      * - Trả nợ (LIABILITY settlement) - "Trả nợ anh Hùng 80k"
+     * - Trả nợ POSTPAID account → chuyển thành TRANSFER transaction
      */
     @SuppressWarnings("unchecked")
     private NLPResponse buildSettlementDraftResponse(Map<String, Object> entities, String userId, 
                                                       Map<String, Object> context, Double confidence) {
+        String counterparty = (String) entities.get("counterparty");
+        
+        // ===== POSTPAID ACCOUNT CHECK =====
+        // Nếu counterparty match với POSTPAID account, tạo TRANSFER transaction thay vì SETTLEMENT
+        if (counterparty != null && !counterparty.isEmpty()) {
+            List<Map<String, Object>> postpaidAccounts = (List<Map<String, Object>>) context.get("postpaidAccounts");
+            if (postpaidAccounts != null) {
+                for (Map<String, Object> postpaidAcc : postpaidAccounts) {
+                    String postpaidName = (String) postpaidAcc.get("name");
+                    if (postpaidName != null && postpaidName.toLowerCase().contains(counterparty.toLowerCase())) {
+                        // Counterparty là POSTPAID account → redirect sang TRANSFER transaction
+                        return buildPostpaidRepaymentResponse(entities, userId, context, confidence, 
+                            (String) postpaidAcc.get("id"), postpaidName);
+                    }
+                }
+            }
+        }
+        // ===== END POSTPAID ACCOUNT CHECK =====
+        
         ConfirmDraftData.SettlementDraft.SettlementDraftBuilder draftBuilder = 
             ConfirmDraftData.SettlementDraft.builder();
         
@@ -516,7 +548,6 @@ public class NLPService {
         Map<String, Object> receivableMatch = (Map<String, Object>) entities.get("receivableMatch");
         Map<String, Object> liabilityMatch = (Map<String, Object>) entities.get("liabilityMatch");
         
-        String counterparty = (String) entities.get("counterparty");
         String settlementType = null;
         String receivableId = null;
         String liabilityId = null;
@@ -713,6 +744,121 @@ public class NLPService {
             .message(settlementType != null && settlementType.equals("RECEIVABLE") 
                 ? "Nhận tiền trả nợ" 
                 : "Trả nợ")
+            .data(confirmData)
+            .build();
+    }
+    
+    /**
+     * Build TRANSFER transaction response for POSTPAID account repayment
+     * Khi trả nợ cho POSTPAID account, tạo TRANSFER từ source account → POSTPAID account
+     */
+    @SuppressWarnings("unchecked")
+    private NLPResponse buildPostpaidRepaymentResponse(Map<String, Object> entities, String userId,
+                                                        Map<String, Object> context, Double confidence,
+                                                        String postpaidAccountId, String postpaidAccountName) {
+        ConfirmDraftData.TransactionDraft.TransactionDraftBuilder draftBuilder = 
+            ConfirmDraftData.TransactionDraft.builder();
+        
+        List<String> needConfirmFields = new ArrayList<>();
+        List<ConfirmDraftData.AutoFilledField> autoFilledFields = new ArrayList<>();
+        
+        // Transaction type = TRANSFER
+        draftBuilder.type("TRANSFER");
+        
+        // Destination account = POSTPAID account (toAccount)
+        draftBuilder.toAccountId(postpaidAccountId);
+        draftBuilder.toAccountName(postpaidAccountName);
+        autoFilledFields.add(ConfirmDraftData.AutoFilledField.builder()
+            .field("toAccountId")
+            .value(postpaidAccountName)
+            .confidence(0.95)
+            .build());
+        
+        // Source account (fromAccount) - accountMatch from "từ zalopay"
+        Map<String, Object> accountMatch = (Map<String, Object>) entities.get("accountMatch");
+        if (accountMatch != null) {
+            String sourceAccountId = (String) accountMatch.get("id");
+            Double accConfidence = getDoubleValue(accountMatch.get("confidence"));
+            if (sourceAccountId != null && accConfidence != null && accConfidence > 0.7) {
+                Account account = accountRepository.findByIdAndUserIdAndDeletedFalse(sourceAccountId, userId).orElse(null);
+                if (account != null) {
+                    draftBuilder.fromAccountId(sourceAccountId);
+                    draftBuilder.fromAccountName(account.getName());
+                    autoFilledFields.add(ConfirmDraftData.AutoFilledField.builder()
+                        .field("fromAccountId")
+                        .value(account.getName())
+                        .confidence(accConfidence)
+                        .build());
+                } else {
+                    needConfirmFields.add("fromAccountId");
+                }
+            } else {
+                needConfirmFields.add("fromAccountId");
+            }
+        } else {
+            needConfirmFields.add("fromAccountId");
+        }
+        
+        // Amount
+        BigDecimal amount = getBigDecimalValue(entities.get("amount"));
+        if (amount != null && amount.compareTo(BigDecimal.ZERO) > 0) {
+            draftBuilder.amount(amount);
+            autoFilledFields.add(ConfirmDraftData.AutoFilledField.builder()
+                .field("amount")
+                .value(amount)
+                .confidence(confidence)
+                .build());
+        } else {
+            needConfirmFields.add("amount");
+        }
+        
+        // Currency
+        draftBuilder.currency("VND");
+        
+        // Date
+        String dateStr = (String) entities.get("date");
+        LocalDateTime occurredAt = null;
+        if (dateStr != null) {
+            occurredAt = parseDate(dateStr);
+        }
+        if (occurredAt == null) {
+            occurredAt = LocalDateTime.now();
+        }
+        
+        String occurredAtStr = formatDateTimeWithTimezone(occurredAt);
+        draftBuilder.occurredAt(occurredAtStr);
+        autoFilledFields.add(ConfirmDraftData.AutoFilledField.builder()
+            .field("occurredAt")
+            .value(occurredAtStr)
+            .confidence(confidence)
+            .build());
+        
+        // Note
+        String note = (String) entities.get("note");
+        if (note == null || note.isEmpty()) {
+            note = "Trả nợ " + postpaidAccountName;
+        }
+        draftBuilder.note(note);
+        autoFilledFields.add(ConfirmDraftData.AutoFilledField.builder()
+            .field("note")
+            .value(note)
+            .confidence(confidence)
+            .build());
+        
+        ConfirmDraftData.TransactionDraft draft = draftBuilder.build();
+        
+        ConfirmDraftData confirmData = ConfirmDraftData.builder()
+            .draftType(ConfirmDraftData.DraftType.TRANSACTION)
+            .draft(draft)
+            .needConfirmFields(needConfirmFields)
+            .autoFilledFields(autoFilledFields)
+            .build();
+        
+        return NLPResponse.builder()
+            .responseType(NLPResponse.ResponseType.CONFIRM_DRAFT)
+            .intent(NLPResponse.Intent.CREATE_TRANSACTION)
+            .confidence(confidence)
+            .message("Trả nợ " + postpaidAccountName)
             .data(confirmData)
             .build();
     }
