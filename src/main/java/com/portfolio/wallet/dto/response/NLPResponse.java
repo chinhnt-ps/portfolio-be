@@ -35,6 +35,7 @@ public class NLPResponse {
         CREATE_RECEIVABLE,
         CREATE_LIABILITY,
         CREATE_SETTLEMENT,
+        ADJUST_BALANCE,
         QUERY_DATA,
         UNKNOWN
     }

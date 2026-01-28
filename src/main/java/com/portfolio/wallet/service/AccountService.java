@@ -1,10 +1,13 @@
 package com.portfolio.wallet.service;
 
+import com.portfolio.common.exception.BusinessException;
 import com.portfolio.common.exception.NotFoundException;
+import com.portfolio.wallet.dto.request.AdjustBalanceRequest;
 import com.portfolio.wallet.dto.request.CreateAccountRequest;
 import com.portfolio.wallet.dto.request.UpdateAccountRequest;
 import com.portfolio.wallet.dto.response.AccountResponse;
 import com.portfolio.wallet.model.Account;
+import com.portfolio.wallet.model.AccountType;
 import com.portfolio.wallet.model.Liability;
 import com.portfolio.wallet.model.Receivable;
 import com.portfolio.wallet.model.Transaction;
@@ -104,6 +107,71 @@ public class AccountService {
         }
         
         return balance;
+    }
+
+    /**
+     * Điều chỉnh số dư tài khoản để khớp với số dư thực tế người dùng nhập
+     *
+     * Logic:
+     * - Tính currentBalance hiện tại từ lịch sử giao dịch
+     * - amountDelta = actualBalance - currentBalance
+     * - Nếu amountDelta > 0: tạo giao dịch BALANCE_ADJUSTMENT với amount = amountDelta
+     *   và coi như INCOME kỹ thuật
+     * - Nếu amountDelta < 0: tạo giao dịch BALANCE_ADJUSTMENT với amount = |amountDelta|
+     *   và coi như EXPENSE kỹ thuật
+     */
+    @Transactional
+    public AccountResponse adjustBalance(String accountId, AdjustBalanceRequest request, String userId) {
+        log.debug("Adjusting balance for account: {} (user: {}) to actualBalance: {}", accountId, userId, request.getActualBalance());
+
+        Account account = accountRepository.findByIdAndUserIdAndDeletedFalse(accountId, userId)
+                .orElseThrow(() -> new NotFoundException("Account not found"));
+
+        if (account.getType() == AccountType.POSTPAID) {
+            throw new BusinessException("Không hỗ trợ điều chỉnh số dư trực tiếp cho tài khoản trả sau (POSTPAID)");
+        }
+
+        BigDecimal actualBalance = request.getActualBalance();
+        if (actualBalance == null || actualBalance.compareTo(BigDecimal.ZERO) < 0) {
+            throw new BusinessException("Actual balance must be >= 0");
+        }
+
+        BigDecimal currentBalance = calculateCurrentBalance(account);
+        BigDecimal delta = actualBalance.subtract(currentBalance);
+
+        if (delta.compareTo(BigDecimal.ZERO) == 0) {
+            throw new BusinessException("Số dư hiện tại đã khớp với số dư thực tế, không cần điều chỉnh");
+        }
+
+        // Xác định hướng điều chỉnh
+        BigDecimal amount = delta.abs();
+
+        Transaction transaction = Transaction.builder()
+                .userId(userId)
+                .type(TransactionType.BALANCE_ADJUSTMENT)
+                .amount(amount)
+                .currency(account.getCurrency() != null ? account.getCurrency() : "VND")
+                .occurredAt(java.time.LocalDateTime.now())
+                .accountId(account.getId())
+                .note(buildAdjustmentNote(request.getNote(), currentBalance, actualBalance))
+                .deleted(false)
+                .build();
+
+        transactionRepository.save(transaction);
+        log.info("Balance adjustment transaction created: {} for account: {}", transaction.getId(), accountId);
+
+        // Sau khi tạo giao dịch, currentBalance mới sẽ bằng actualBalance theo công thức
+        // nhưng để an toàn ta vẫn gọi lại calculateCurrentBalance
+        BigDecimal newBalance = calculateCurrentBalance(account);
+        return AccountResponse.from(account, newBalance);
+    }
+
+    private String buildAdjustmentNote(String note, BigDecimal before, BigDecimal after) {
+        String base = String.format("[Điều chỉnh số dư] từ %s về %s", before.toPlainString(), after.toPlainString());
+        if (note == null || note.trim().isEmpty()) {
+            return base;
+        }
+        return base + " - Lý do: " + note.trim();
     }
     
     /**

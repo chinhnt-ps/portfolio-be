@@ -138,6 +138,7 @@ public class GeminiService {
         prompt.append("- CREATE_LIABILITY: Khi user \"vay\", \"mượn\", \"nợ ai đó\" (ví dụ: \"vay anh Hùng 5tr\", \"nợ Long 100k\")\n");
         prompt.append("- CREATE_SETTLEMENT: Khi user \"trả nợ\", \"nhận tiền trả nợ\", \"thanh toán\" (ví dụ: \"Trả nợ anh Hùng 80k\", \"Long trả 100k\")\n");
         prompt.append("- CREATE_TRANSACTION: Khi user chi tiêu/thu nhập thông thường (ví dụ: \"ăn bún 50k\", \"lương tháng 1 10tr\")\n");
+        prompt.append("- ADJUST_BALANCE: Khi user muốn điều chỉnh số dư tài khoản về một giá trị mới (ví dụ: \"điều chỉnh số dư ví tiền mặt về 2 triệu\", \"cân lại số dư tài khoản A còn 500k\")\n");
         prompt.append("- QUERY_DATA: Khi user hỏi thông tin (ví dụ: \"tháng này chi bao nhiêu?\")\n\n");
         
         // Rules for Vietnamese currency and dates
@@ -153,7 +154,8 @@ public class GeminiService {
         prompt.append("2. \"vay anh Hùng 5tr\" → intent: CREATE_LIABILITY, counterparty: \"anh Hùng\", amount: 5000000\n");
         prompt.append("3. \"Trả nợ anh Hùng 80k vietcombank\" → intent: CREATE_SETTLEMENT, type: LIABILITY, counterparty: \"anh Hùng\", amount: 80000, accountMatch: vietcombank\n");
         prompt.append("4. \"ăn bún 50k\" → intent: CREATE_TRANSACTION, type: EXPENSE, amount: 50000, categoryMatch: Ăn uống\n");
-        prompt.append("5. \"Long trả 100k\" → intent: CREATE_SETTLEMENT, type: RECEIVABLE, counterparty: \"Long\", amount: 100000\n\n");
+        prompt.append("5. \"Long trả 100k\" → intent: CREATE_SETTLEMENT, type: RECEIVABLE, counterparty: \"Long\", amount: 100000\n");
+        prompt.append("6. \"điều chỉnh số dư ví tiền mặt về 2 triệu\" → intent: ADJUST_BALANCE, accountMatch: ví tiền mặt, targetBalance: 2000000\n\n");
         
         // Context injection
         prompt.append("CONTEXT:\n");
@@ -176,12 +178,13 @@ public class GeminiService {
         // Output schema
         prompt.append("OUTPUT SCHEMA (JSON):\n");
         prompt.append("{\n");
-        prompt.append("  \"intent\": \"CREATE_TRANSACTION\" | \"CREATE_RECEIVABLE\" | \"CREATE_LIABILITY\" | \"CREATE_SETTLEMENT\" | \"QUERY_DATA\" | \"UNKNOWN\",\n");
+        prompt.append("  \"intent\": \"CREATE_TRANSACTION\" | \"CREATE_RECEIVABLE\" | \"CREATE_LIABILITY\" | \"CREATE_SETTLEMENT\" | \"ADJUST_BALANCE\" | \"QUERY_DATA\" | \"UNKNOWN\",\n");
         prompt.append("  \"confidence\": 0.0-1.0,\n");
         prompt.append("  \"entities\": {\n");
         prompt.append("    \"amount\": number (optional),\n");
-        prompt.append("    \"counterparty\": string (optional, REQUIRED for RECEIVABLE/LIABILITY/SETTLEMENT),\n");
-        prompt.append("    \"accountMatch\": {\"id\": string, \"confidence\": number} (optional),\n");
+        prompt.append("    \"targetBalance\": number (optional, REQUIRED for ADJUST_BALANCE),\n");
+        prompt.append("    \"counterparty\": string (optional, REQUIRED cho RECEIVABLE/LIABILITY/SETTLEMENT),\n");
+        prompt.append("    \"accountMatch\": {\"id\": string, \"confidence\": number} (optional, REQUIRED cho ADJUST_BALANCE),\n");
         prompt.append("    \"categoryMatch\": {\"id\": string, \"confidence\": number} (optional, only for TRANSACTION),\n");
         prompt.append("    \"receivableMatch\": {\"id\": string, \"confidence\": number} (optional, for SETTLEMENT type RECEIVABLE),\n");
         prompt.append("    \"liabilityMatch\": {\"id\": string, \"confidence\": number} (optional, for SETTLEMENT type LIABILITY),\n");
@@ -196,6 +199,7 @@ public class GeminiService {
         prompt.append("- Nếu text có từ \"cho vay\", \"cho mượn\", \"cho [tên] vay\" → intent phải là CREATE_RECEIVABLE\n");
         prompt.append("- Nếu text có từ \"vay\", \"mượn\", \"nợ\" (không phải \"cho vay\") → intent phải là CREATE_LIABILITY\n");
         prompt.append("- Nếu text có từ \"trả nợ\", \"nhận tiền\", \"thanh toán\" → intent phải là CREATE_SETTLEMENT\n");
+        prompt.append("- Nếu text có từ \"điều chỉnh số dư\", \"chỉnh lại số dư\", \"cân bằng số dư\" → intent phải là ADJUST_BALANCE\n");
         prompt.append("- Chỉ dùng CREATE_TRANSACTION cho chi tiêu/thu nhập thông thường (ăn uống, mua sắm, lương, v.v.)\n\n");
         
         // User input

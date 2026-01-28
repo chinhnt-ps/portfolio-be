@@ -2,6 +2,7 @@ package com.portfolio.wallet.controller;
 
 import com.portfolio.common.annotation.RateLimited;
 import com.portfolio.common.dto.ApiResponse;
+import com.portfolio.wallet.dto.request.AdjustBalanceRequest;
 import com.portfolio.wallet.dto.request.CreateAccountRequest;
 import com.portfolio.wallet.dto.request.UpdateAccountRequest;
 import com.portfolio.wallet.dto.response.AccountResponse;
@@ -100,5 +101,21 @@ public class AccountController {
         String userId = authentication.getName();
         accountService.deleteAccount(id, userId);
         return ResponseEntity.ok(ApiResponse.success(null, "Account deleted successfully"));
+    }
+
+    /**
+     * Adjust account balance to match actual balance
+     *
+     * POST /api/v1/wallet/accounts/{id}/adjust-balance
+     */
+    @PostMapping("/{id}/adjust-balance")
+    @RateLimited(RateLimited.RateLimitType.WALLET_API)
+    public ResponseEntity<ApiResponse<AccountResponse>> adjustBalance(
+            @PathVariable String id,
+            @Valid @RequestBody AdjustBalanceRequest request,
+            Authentication authentication) {
+        String userId = authentication.getName();
+        AccountResponse account = accountService.adjustBalance(id, request, userId);
+        return ResponseEntity.ok(ApiResponse.success(account, "Account balance adjusted successfully"));
     }
 }

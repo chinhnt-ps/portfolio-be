@@ -190,6 +190,8 @@ public class NLPService {
                 return buildLiabilityDraftResponse(entities, userId, confidence);
             case CREATE_SETTLEMENT:
                 return buildSettlementDraftResponse(entities, userId, context, confidence);
+            case ADJUST_BALANCE:
+                return buildBalanceAdjustmentDraftResponse(entities, userId, confidence);
             case QUERY_DATA:
                 return buildQueryResponse(entities, userId, confidence);
             default:
@@ -335,7 +337,6 @@ public class NLPService {
     /**
      * Build receivable draft response
      */
-    @SuppressWarnings("unchecked")
     private NLPResponse buildReceivableDraftResponse(Map<String, Object> entities, String userId, Double confidence) {
         ConfirmDraftData.ReceivableDraft.ReceivableDraftBuilder draftBuilder = 
             ConfirmDraftData.ReceivableDraft.builder();
@@ -423,7 +424,6 @@ public class NLPService {
     /**
      * Build liability draft response
      */
-    @SuppressWarnings("unchecked")
     private NLPResponse buildLiabilityDraftResponse(Map<String, Object> entities, String userId, Double confidence) {
         ConfirmDraftData.LiabilityDraft.LiabilityDraftBuilder draftBuilder = 
             ConfirmDraftData.LiabilityDraft.builder();
@@ -554,9 +554,7 @@ public class NLPService {
         String counterpartyName = null;
         
         // Try to match with existing receivables/liabilities
-        @SuppressWarnings("unchecked")
         List<Map<String, Object>> openReceivables = (List<Map<String, Object>>) context.get("openReceivables");
-        @SuppressWarnings("unchecked")
         List<Map<String, Object>> openLiabilities = (List<Map<String, Object>>) context.get("openLiabilities");
         
         if (receivableMatch != null) {
@@ -859,6 +857,85 @@ public class NLPService {
             .intent(NLPResponse.Intent.CREATE_TRANSACTION)
             .confidence(confidence)
             .message("Trả nợ " + postpaidAccountName)
+            .data(confirmData)
+            .build();
+    }
+
+    /**
+     * Build balance adjustment draft response
+     * Dùng cho intent ADJUST_BALANCE: điều chỉnh số dư tài khoản về một giá trị mới
+     */
+    @SuppressWarnings("unchecked")
+    private NLPResponse buildBalanceAdjustmentDraftResponse(Map<String, Object> entities, String userId, Double confidence) {
+        ConfirmDraftData.BalanceAdjustmentDraft.BalanceAdjustmentDraftBuilder draftBuilder =
+            ConfirmDraftData.BalanceAdjustmentDraft.builder();
+
+        List<String> needConfirmFields = new ArrayList<>();
+        List<ConfirmDraftData.AutoFilledField> autoFilledFields = new ArrayList<>();
+
+        // Account
+        Map<String, Object> accountMatch = (Map<String, Object>) entities.get("accountMatch");
+        if (accountMatch != null) {
+            String accountId = (String) accountMatch.get("id");
+            Double accConfidence = getDoubleValue(accountMatch.get("confidence"));
+            if (accountId != null && accConfidence != null && accConfidence > 0.7) {
+                Account account = accountRepository.findByIdAndUserIdAndDeletedFalse(accountId, userId).orElse(null);
+                if (account != null) {
+                    draftBuilder.accountId(accountId);
+                    draftBuilder.accountName(account.getName());
+                    autoFilledFields.add(ConfirmDraftData.AutoFilledField.builder()
+                        .field("accountId")
+                        .value(account.getName())
+                        .confidence(accConfidence)
+                        .build());
+                } else {
+                    needConfirmFields.add("accountId");
+                }
+            } else {
+                needConfirmFields.add("accountId");
+            }
+        } else {
+            needConfirmFields.add("accountId");
+        }
+
+        // Target balance (actual balance user wants)
+        BigDecimal targetBalance = getBigDecimalValue(entities.get("targetBalance"));
+        if (targetBalance != null && targetBalance.compareTo(BigDecimal.ZERO) >= 0) {
+            draftBuilder.targetBalance(targetBalance);
+            autoFilledFields.add(ConfirmDraftData.AutoFilledField.builder()
+                .field("targetBalance")
+                .value(targetBalance)
+                .confidence(confidence)
+                .build());
+        } else {
+            needConfirmFields.add("targetBalance");
+        }
+
+        // Note
+        String note = (String) entities.get("note");
+        if (note != null && !note.isEmpty()) {
+            draftBuilder.note(note);
+            autoFilledFields.add(ConfirmDraftData.AutoFilledField.builder()
+                .field("note")
+                .value(note)
+                .confidence(confidence)
+                .build());
+        }
+
+        ConfirmDraftData.BalanceAdjustmentDraft draft = draftBuilder.build();
+
+        ConfirmDraftData confirmData = ConfirmDraftData.builder()
+            .draftType(ConfirmDraftData.DraftType.BALANCE_ADJUSTMENT)
+            .draft(draft)
+            .needConfirmFields(needConfirmFields)
+            .autoFilledFields(autoFilledFields)
+            .build();
+
+        return NLPResponse.builder()
+            .responseType(NLPResponse.ResponseType.CONFIRM_DRAFT)
+            .intent(NLPResponse.Intent.ADJUST_BALANCE)
+            .confidence(confidence)
+            .message("Điều chỉnh số dư tài khoản")
             .data(confirmData)
             .build();
     }

@@ -8,9 +8,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Data for CONFIRM_DRAFT response type
@@ -26,7 +24,8 @@ public class ConfirmDraftData implements NLPResponseData {
         TRANSACTION,
         RECEIVABLE,
         LIABILITY,
-        SETTLEMENT
+        SETTLEMENT,
+        BALANCE_ADJUSTMENT
     }
     
     private DraftType draftType;
@@ -37,7 +36,8 @@ public class ConfirmDraftData implements NLPResponseData {
         @JsonSubTypes.Type(value = TransactionDraft.class, name = "TRANSACTION"),
         @JsonSubTypes.Type(value = ReceivableDraft.class, name = "RECEIVABLE"),
         @JsonSubTypes.Type(value = LiabilityDraft.class, name = "LIABILITY"),
-        @JsonSubTypes.Type(value = SettlementDraft.class, name = "SETTLEMENT")
+        @JsonSubTypes.Type(value = SettlementDraft.class, name = "SETTLEMENT"),
+        @JsonSubTypes.Type(value = BalanceAdjustmentDraft.class, name = "BALANCE_ADJUSTMENT")
     })
     private Object draft;
     
@@ -122,6 +122,23 @@ public class ConfirmDraftData implements NLPResponseData {
         private String accountId;
         private String accountName; // For display
         private String settledAt; // ISO format with timezone: "YYYY-MM-DDTHH:mm:ss+07:00"
+        private String note;
+    }
+
+    /**
+     * Draft cho điều chỉnh số dư tài khoản
+     */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class BalanceAdjustmentDraft {
+        private String accountId;
+        private String accountName;
+        /**
+         * Số dư mục tiêu mà user muốn điều chỉnh về (actual balance)
+         */
+        private BigDecimal targetBalance;
         private String note;
     }
 }
