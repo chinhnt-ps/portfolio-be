@@ -27,36 +27,41 @@ public class JwtTokenProvider {
     
     /**
      * Generate JWT token
-     * 
+     *
      * @param userId User ID
      * @param email User email
      * @param role User role
+     * @param fullName User full name (optional, for display after session restore)
      * @return JWT token string
+     */
+    public String generateToken(String userId, String email, String role, String fullName) {
+        return generateToken(userId, email, role, fullName, jwtExpiration);
+    }
+
+    /**
+     * Generate JWT token (backward compatible - fullName null)
      */
     public String generateToken(String userId, String email, String role) {
-        return generateToken(userId, email, role, jwtExpiration);
+        return generateToken(userId, email, role, null, jwtExpiration);
     }
-    
+
     /**
      * Generate JWT token with custom expiration
-     * 
-     * @param userId User ID
-     * @param email User email
-     * @param role User role
-     * @param expirationSeconds Expiration time in seconds
-     * @return JWT token string
      */
-    public String generateToken(String userId, String email, String role, long expirationSeconds) {
+    public String generateToken(String userId, String email, String role, String fullName, long expirationSeconds) {
         Date now = new Date();
         Date expiryDate = new Date(now.getTime() + expirationSeconds * 1000);
-        
-        return Jwts.builder()
+
+        var builder = Jwts.builder()
                 .subject(userId)
                 .claim("email", email)
                 .claim("role", role)
                 .issuedAt(now)
-                .expiration(expiryDate)
-                .signWith(getSigningKey())
+                .expiration(expiryDate);
+        if (fullName != null && !fullName.isBlank()) {
+            builder = builder.claim("fullName", fullName);
+        }
+        return builder.signWith(getSigningKey())
                 .compact();
     }
     
@@ -80,7 +85,14 @@ public class JwtTokenProvider {
     public String getRoleFromToken(String token) {
         return getClaimFromToken(token, claims -> claims.get("role", String.class));
     }
-    
+
+    /**
+     * Extract full name from token (optional claim)
+     */
+    public String getFullNameFromToken(String token) {
+        return getClaimFromToken(token, claims -> claims.get("fullName", String.class));
+    }
+
     /**
      * Extract expiration date from token
      */

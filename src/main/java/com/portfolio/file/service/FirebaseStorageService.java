@@ -1,6 +1,5 @@
 package com.portfolio.file.service;
 
-import com.google.cloud.storage.Blob;
 import com.google.cloud.storage.BlobId;
 import com.google.cloud.storage.BlobInfo;
 import com.google.cloud.storage.Storage;
@@ -73,32 +72,17 @@ public class FirebaseStorageService {
     }
     
     /**
-     * Get public URL từ Firebase Storage path
-     * 
-     * @param storagePath Firebase Storage path
-     * @return Public URL
+     * Get public URL từ Firebase Storage path.
+     * Luôn dùng format Firebase Storage (firebasestorage.googleapis.com) để áp dụng Firebase Storage Rules.
+     * Không dùng blob.getMediaLink() vì đó là GCS API URL, yêu cầu OAuth2 → anonymous access bị từ chối.
+     *
+     * @param storagePath Firebase Storage path (vd: uploads/uuid-timestamp.jpg)
+     * @return URL public, dùng được khi Firebase Storage Rules cho phép read
      */
     public String getPublicUrl(String storagePath) {
-        try {
-            Storage storage = storageClient.bucket().getStorage();
-            Blob blob = storage.get(BlobId.of(bucketName, storagePath));
-            
-            if (blob == null) {
-                throw new IOException("File not found in Firebase Storage: " + storagePath);
-            }
-            
-            // Get public URL
-            String publicUrl = blob.getMediaLink();
-            
-            // Hoặc có thể dùng format: https://firebasestorage.googleapis.com/v0/b/{bucket}/o/{path}?alt=media
-            // Nhưng getMediaLink() đã trả về URL đúng format
-            return publicUrl;
-        } catch (Exception e) {
-            log.error("Failed to get public URL for path: {}", storagePath, e);
-            // Fallback: construct URL manually
-            return String.format("https://firebasestorage.googleapis.com/v0/b/%s/o/%s?alt=media",
-                    bucketName, storagePath.replace("/", "%2F"));
-        }
+        String encodedPath = storagePath.replace("/", "%2F");
+        return String.format("https://firebasestorage.googleapis.com/v0/b/%s/o/%s?alt=media",
+                bucketName, encodedPath);
     }
     
     /**

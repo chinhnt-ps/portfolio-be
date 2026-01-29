@@ -121,11 +121,12 @@ public class AuthService {
             throw new UnauthorizedException("Email hoặc mật khẩu không đúng");
         }
         
-        // Generate tokens with role
+        // Generate tokens with role and fullName (for display after session restore)
         String accessToken = jwtTokenProvider.generateToken(
-                user.getUserId(), 
-                user.getEmail(), 
-                user.getRole().name()
+                user.getUserId(),
+                user.getEmail(),
+                user.getRole().name(),
+                user.getFullName()
         );
         String refreshToken = generateRefreshToken(user.getUserId());
         
@@ -171,11 +172,12 @@ public class AuthService {
         // Get user
         User user = userService.findByUserId(refreshToken.getUserId());
         
-        // Generate new access token with role
+        // Generate new access token with role and fullName
         String newAccessToken = jwtTokenProvider.generateToken(
-                user.getUserId(), 
-                user.getEmail(), 
-                user.getRole().name()
+                user.getUserId(),
+                user.getEmail(),
+                user.getRole().name(),
+                user.getFullName()
         );
         
         // Calculate expiresIn (seconds until expiration)
