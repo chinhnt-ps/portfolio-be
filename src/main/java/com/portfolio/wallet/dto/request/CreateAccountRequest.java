@@ -30,8 +30,11 @@ public class CreateAccountRequest {
     @Builder.Default
     private String currency = "VND";
     
-    @Builder.Default
-    private BigDecimal openingBalance = BigDecimal.ZERO;
+    /**
+     * Số dư ban đầu khi tạo tài khoản (optional, default: 0)
+     * Với POSTPAID: đây là dư nợ ban đầu
+     */
+    private BigDecimal initialBalance;
     
     /**
      * Hạn mức tín dụng (chỉ dùng cho POSTPAID, nullable)

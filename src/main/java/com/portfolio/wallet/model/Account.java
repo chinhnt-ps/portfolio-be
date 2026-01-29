@@ -37,9 +37,6 @@ public class Account {
     
     private String currency; // VND, USD, etc. (default: VND)
     
-    @Builder.Default
-    private BigDecimal openingBalance = BigDecimal.ZERO; // Số dư ban đầu
-    
     /**
      * Hạn mức tín dụng (chỉ dùng cho POSTPAID, nullable)
      * null = không giới hạn

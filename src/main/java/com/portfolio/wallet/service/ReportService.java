@@ -161,6 +161,8 @@ public class ReportService {
     
     /**
      * Get accounts overview with balances
+     * 
+     * Tính current balance từ TẤT CẢ transactions (không chỉ trong period) để có số dư chính xác
      */
     private List<DashboardReportResponse.AccountBalance> getAccountsOverview(
             String userId, List<Transaction> transactions) {
@@ -170,37 +172,43 @@ public class ReportService {
         
         return accounts.stream()
                 .map(account -> {
-                    // Calculate balance: openingBalance + income - expense
-                    BigDecimal balance = account.getOpeningBalance();
+                    // Calculate balance từ TẤT CẢ transactions (không chỉ trong period)
+                    // Bắt đầu từ 0, không còn openingBalance
+                    BigDecimal balance = BigDecimal.ZERO;
                     
-                    // Add income transactions
-                    BigDecimal income = transactions.stream()
-                            .filter(t -> t.getType() == TransactionType.INCOME 
-                                    && account.getId().equals(t.getAccountId()))
-                            .map(Transaction::getAmount)
-                            .reduce(BigDecimal.ZERO, BigDecimal::add);
+                    // Get all transactions for this account
+                    List<Transaction> accountTransactions = transactionRepository.findByAccountIdAndDeletedFalse(account.getId());
+                    List<Transaction> fromAccountTransactions = transactionRepository.findByFromAccountIdAndDeletedFalse(account.getId());
+                    List<Transaction> toAccountTransactions = transactionRepository.findByToAccountIdAndDeletedFalse(account.getId());
                     
-                    // Subtract expense transactions
-                    BigDecimal expense = transactions.stream()
-                            .filter(t -> t.getType() == TransactionType.EXPENSE 
-                                    && account.getId().equals(t.getAccountId()))
-                            .map(Transaction::getAmount)
-                            .reduce(BigDecimal.ZERO, BigDecimal::add);
+                    // Process account transactions
+                    for (Transaction t : accountTransactions) {
+                        if (t.getType() == TransactionType.INCOME) {
+                            balance = balance.add(t.getAmount());
+                        } else if (t.getType() == TransactionType.EXPENSE) {
+                            balance = balance.subtract(t.getAmount());
+                        } else if (t.getType() == TransactionType.RECEIVABLE_SETTLEMENT) {
+                            balance = balance.add(t.getAmount());
+                        } else if (t.getType() == TransactionType.LIABILITY_SETTLEMENT) {
+                            balance = balance.subtract(t.getAmount());
+                        } else if (t.getType() == TransactionType.BALANCE_ADJUSTMENT) {
+                            balance = balance.add(t.getAmount());
+                        }
+                    }
                     
-                    // Handle transfers
-                    BigDecimal transferIn = transactions.stream()
-                            .filter(t -> t.getType() == TransactionType.TRANSFER 
-                                    && account.getId().equals(t.getToAccountId()))
-                            .map(Transaction::getAmount)
-                            .reduce(BigDecimal.ZERO, BigDecimal::add);
+                    // Subtract TRANSFER_OUT
+                    for (Transaction t : fromAccountTransactions) {
+                        if (t.getType() == TransactionType.TRANSFER) {
+                            balance = balance.subtract(t.getAmount());
+                        }
+                    }
                     
-                    BigDecimal transferOut = transactions.stream()
-                            .filter(t -> t.getType() == TransactionType.TRANSFER 
-                                    && account.getId().equals(t.getFromAccountId()))
-                            .map(Transaction::getAmount)
-                            .reduce(BigDecimal.ZERO, BigDecimal::add);
-                    
-                    balance = balance.add(income).subtract(expense).add(transferIn).subtract(transferOut);
+                    // Add TRANSFER_IN
+                    for (Transaction t : toAccountTransactions) {
+                        if (t.getType() == TransactionType.TRANSFER) {
+                            balance = balance.add(t.getAmount());
+                        }
+                    }
                     
                     return DashboardReportResponse.AccountBalance.builder()
                             .accountId(account.getId())

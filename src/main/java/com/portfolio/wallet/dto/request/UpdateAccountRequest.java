@@ -25,8 +25,6 @@ public class UpdateAccountRequest {
     
     private String currency;
     
-    private BigDecimal openingBalance;
-    
     /**
      * Hạn mức tín dụng (chỉ dùng cho POSTPAID, nullable)
      * null = không giới hạn

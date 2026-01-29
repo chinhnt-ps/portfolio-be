@@ -23,8 +23,7 @@ public class AccountResponse {
     private String name;
     private AccountType type;
     private String currency;
-    private BigDecimal openingBalance;
-    private BigDecimal currentBalance; // Calculated: openingBalance + transactions
+    private BigDecimal currentBalance; // Calculated: sum of all transactions
     
     // POSTPAID specific fields
     private BigDecimal creditLimit;     // Hạn mức (nullable = unlimited)
@@ -45,8 +44,7 @@ public class AccountResponse {
                 .name(account.getName())
                 .type(account.getType())
                 .currency(account.getCurrency())
-                .openingBalance(account.getOpeningBalance())
-                .currentBalance(account.getOpeningBalance()) // Default to openingBalance, will be calculated
+                .currentBalance(BigDecimal.ZERO) // Default to 0, will be calculated
                 .creditLimit(account.getCreditLimit())
                 .note(account.getNote())
                 .createdAt(account.getCreatedAt())
@@ -58,8 +56,9 @@ public class AccountResponse {
      * Convert Account entity to AccountResponse with calculated currentBalance
      * 
      * Với POSTPAID account:
+     * - currentBalance từ calculateCurrentBalance() = tổng transactions (EXPENSE trừ đi, TRANSFER_IN cộng vào)
      * - currentBalance trả về 0 (không có tiền thật)
-     * - currentDebt = nợ hiện tại (tính từ balance âm)
+     * - currentDebt = -currentBalance (nếu currentBalance âm, tức là có nợ)
      * - availableLimit = creditLimit - currentDebt
      */
     public static AccountResponse from(Account account, BigDecimal currentBalance) {
@@ -68,7 +67,6 @@ public class AccountResponse {
                 .name(account.getName())
                 .type(account.getType())
                 .currency(account.getCurrency())
-                .openingBalance(account.getOpeningBalance())
                 .creditLimit(account.getCreditLimit())
                 .note(account.getNote())
                 .createdAt(account.getCreatedAt())
@@ -76,23 +74,26 @@ public class AccountResponse {
         
         if (account.getType() == AccountType.POSTPAID) {
             // Với POSTPAID:
-            // - openingBalance = dư nợ ban đầu (initial debt)
-            // - expense làm tăng nợ
-            // - transfer_in làm giảm nợ (trả nợ)
-            // 
-            // calculateCurrentBalance trả về: openingBalance - expense + transfer_in
-            // debt = openingBalance + expense - transfer_in
-            //      = openingBalance + (openingBalance - currentBalance)
-            //      = 2 * openingBalance - currentBalance
-            BigDecimal openingBalance = account.getOpeningBalance() != null 
-                    ? account.getOpeningBalance() 
-                    : BigDecimal.ZERO;
-            BigDecimal debt = openingBalance.multiply(BigDecimal.valueOf(2)).subtract(currentBalance);
-            if (debt.compareTo(BigDecimal.ZERO) < 0) {
-                debt = BigDecimal.ZERO; // Không có debt âm (đã trả hết nợ)
+            // - currentBalance từ calculateCurrentBalance() = tổng transactions
+            //   + EXPENSE làm giảm balance (âm) → tăng nợ
+            //   + TRANSFER_IN làm tăng balance (dương) → giảm nợ
+            //   + BALANCE_ADJUSTMENT (initialBalance) làm tăng balance (dương) → giảm nợ
+            // - Nếu currentBalance < 0 → có nợ → debt = -currentBalance (dương)
+            // - Nếu currentBalance >= 0 → không có nợ → debt = 0
+            BigDecimal debt;
+            if (currentBalance.compareTo(BigDecimal.ZERO) < 0) {
+                debt = currentBalance.negate(); // currentBalance âm → debt dương
+            } else {
+                debt = BigDecimal.ZERO; // currentBalance >= 0 → không có nợ (đã trả hết hoặc có credit)
             }
             builder.currentDebt(debt);
             builder.currentBalance(BigDecimal.ZERO); // Không có "số dư tiền thật"
+            
+            // Debug log
+            System.out.println(String.format(
+                "[POSTPAID Debug] Account: %s (ID: %s), currentBalance (from calculateCurrentBalance): %s, calculated debt: %s",
+                account.getName(), account.getId(), currentBalance, debt
+            ));
             
             if (account.getCreditLimit() != null) {
                 BigDecimal available = account.getCreditLimit().subtract(debt);

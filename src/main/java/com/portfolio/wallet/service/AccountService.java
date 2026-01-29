@@ -42,18 +42,26 @@ public class AccountService {
     
     /**
      * Calculate current balance for an account
-     * currentBalance = openingBalance + INCOME - EXPENSE + TRANSFER_IN - TRANSFER_OUT
+     * currentBalance = INCOME - EXPENSE + TRANSFER_IN - TRANSFER_OUT + BALANCE_ADJUSTMENT
+     * (Không còn openingBalance, số dư ban đầu được tạo bằng BALANCE_ADJUSTMENT transaction)
      */
     private BigDecimal calculateCurrentBalance(Account account) {
-        BigDecimal balance = account.getOpeningBalance();
+        BigDecimal balance = BigDecimal.ZERO; // Bắt đầu từ 0
         
         // Get all transactions for this account
         List<Transaction> accountTransactions = transactionRepository.findByAccountIdAndDeletedFalse(account.getId());
         List<Transaction> fromAccountTransactions = transactionRepository.findByFromAccountIdAndDeletedFalse(account.getId());
         List<Transaction> toAccountTransactions = transactionRepository.findByToAccountIdAndDeletedFalse(account.getId());
         
+        // Debug log for POSTPAID accounts
+        if (account.getType() == AccountType.POSTPAID) {
+            log.debug("[POSTPAID] Calculating balance for account: {}, transactions count: {}",
+                account.getName(), accountTransactions.size());
+        }
+        
         // Add INCOME transactions
         // Add RECEIVABLE_SETTLEMENT (nhận tiền từ khoản cho vay)
+        // Add BALANCE_ADJUSTMENT (điều chỉnh số dư)
         for (Transaction t : accountTransactions) {
             if (t.getType() == TransactionType.INCOME) {
                 balance = balance.add(t.getAmount());
@@ -65,6 +73,10 @@ public class AccountService {
             } else if (t.getType() == TransactionType.LIABILITY_SETTLEMENT) {
                 // Trả nợ -> trừ khỏi account
                 balance = balance.subtract(t.getAmount());
+            } else if (t.getType() == TransactionType.BALANCE_ADJUSTMENT) {
+                // Điều chỉnh số dư: amount là delta (có thể âm hoặc dương)
+                // delta > 0: tăng số dư, delta < 0: giảm số dư
+                balance = balance.add(t.getAmount());
             }
         }
         
@@ -106,6 +118,12 @@ public class AccountService {
             }
         }
         
+        // Debug log for POSTPAID accounts
+        if (account.getType() == AccountType.POSTPAID) {
+            log.debug("[POSTPAID] Final calculated balance for account {}: {}",
+                account.getName(), balance);
+        }
+        
         return balance;
     }
 
@@ -143,13 +161,13 @@ public class AccountService {
             throw new BusinessException("Số dư hiện tại đã khớp với số dư thực tế, không cần điều chỉnh");
         }
 
-        // Xác định hướng điều chỉnh
-        BigDecimal amount = delta.abs();
-
+        // Lưu delta (có thể âm hoặc dương) vào amount để biết hướng điều chỉnh
+        // delta > 0: tăng số dư (như INCOME)
+        // delta < 0: giảm số dư (như EXPENSE)
         Transaction transaction = Transaction.builder()
                 .userId(userId)
                 .type(TransactionType.BALANCE_ADJUSTMENT)
-                .amount(amount)
+                .amount(delta) // Lưu delta trực tiếp (có thể âm)
                 .currency(account.getCurrency() != null ? account.getCurrency() : "VND")
                 .occurredAt(java.time.LocalDateTime.now())
                 .accountId(account.getId())
@@ -223,7 +241,6 @@ public class AccountService {
                 .name(request.getName())
                 .type(request.getType())
                 .currency(request.getCurrency() != null ? request.getCurrency() : "VND")
-                .openingBalance(request.getOpeningBalance() != null ? request.getOpeningBalance() : java.math.BigDecimal.ZERO)
                 .creditLimit(request.getCreditLimit()) // POSTPAID: hạn mức tín dụng
                 .note(request.getNote())
                 .deleted(false)
@@ -231,6 +248,33 @@ public class AccountService {
         
         Account saved = accountRepository.save(account);
         log.info("Account created successfully: {}", saved.getId());
+        
+        // Nếu có initialBalance, tạo BALANCE_ADJUSTMENT transaction để set số dư ban đầu
+        if (request.getInitialBalance() != null && request.getInitialBalance().compareTo(BigDecimal.ZERO) != 0) {
+            BigDecimal adjustmentAmount = request.getInitialBalance();
+            
+            // Với POSTPAID: "Dư nợ ban đầu" phải làm currentBalance âm
+            // Ví dụ: dư nợ ban đầu = 1791000 → currentBalance = -1791000 → debt = 1791000
+            // Vậy BALANCE_ADJUSTMENT phải có amount âm
+            if (saved.getType() == AccountType.POSTPAID) {
+                adjustmentAmount = request.getInitialBalance().negate();
+            }
+            
+            Transaction initialTransaction = Transaction.builder()
+                    .userId(userId)
+                    .type(TransactionType.BALANCE_ADJUSTMENT)
+                    .amount(adjustmentAmount)
+                    .currency(saved.getCurrency() != null ? saved.getCurrency() : "VND")
+                    .occurredAt(java.time.LocalDateTime.now())
+                    .accountId(saved.getId())
+                    .note(saved.getType() == AccountType.POSTPAID ? "Dư nợ ban đầu" : "Số dư ban đầu")
+                    .deleted(false)
+                    .build();
+            transactionRepository.save(initialTransaction);
+            log.info("Initial balance transaction created: {} for account: {} (amount: {}, type: {})", 
+                    initialTransaction.getId(), saved.getId(), adjustmentAmount, saved.getType());
+        }
+        
         BigDecimal currentBalance = calculateCurrentBalance(saved);
         return AccountResponse.from(saved, currentBalance);
     }
@@ -254,9 +298,6 @@ public class AccountService {
         }
         if (request.getCurrency() != null) {
             account.setCurrency(request.getCurrency());
-        }
-        if (request.getOpeningBalance() != null) {
-            account.setOpeningBalance(request.getOpeningBalance());
         }
         if (request.getCreditLimit() != null) {
             account.setCreditLimit(request.getCreditLimit());
